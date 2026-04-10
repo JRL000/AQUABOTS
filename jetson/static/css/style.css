@@ -1,0 +1,147 @@
+/* ============================= */
+/* GENERAL PAGE */
+/* ============================= */
+body {
+    margin: 0;
+    font-family: 'Segoe UI', sans-serif;
+    background: #0f1117;
+    color: #ffffff;
+}
+
+/* ============================= */
+/* HEADER */
+/* ============================= */
+.header {
+    background: #9E1B32;
+    padding: 20px;
+    text-align: center;
+    border-bottom: 3px solid #0E025C;
+}
+
+.header h1 {
+    margin: 0;
+}
+
+.header p {
+    margin: 5px 0 0;
+    opacity: 0.85;
+}
+
+/* ============================= */
+/* TOP SECTION (MAP + VIDEO) */
+/* ============================= */
+.container {
+    display: flex;
+    flex-direction: row;        /* FORCE SIDE BY SIDE */
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Each side takes HALF screen */
+.panel-column {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.panel-title {
+    margin-bottom: 10px;
+    font-weight: 600;
+}
+
+/* Panel box */
+.panel {
+    background: #161b22;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+    height: 400px;             /* FIXED HEIGHT */
+    overflow: hidden;
+}
+
+/* ============================= */
+/* VIDEO */
+/* ============================= */
+#webrtcVideo {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    background: black;
+}
+
+/* ============================= */
+/* BOTTOM SECTION */
+/* ============================= */
+.bottom-row {
+    display: flex;
+    gap: 20px;
+    padding: 20px;
+}
+
+/* Telemetry table */
+.sensor-data {
+    flex: 2;
+    background: #161b22;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+}
+
+.sensor-data table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.sensor-data th,
+.sensor-data td {
+    padding: 8px;
+    font-size: 14px;
+}
+
+/* Controls */
+.buttons {
+    flex: 1;
+    background: #161b22;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+}
+
+/* Status */
+.video-stats {
+    flex: 1;
+    background: #161b22;
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid #1f2937;
+}
+
+/* ============================= */
+/* BUTTONS */
+/* ============================= */
+button {
+    width: 100%;
+    margin: 6px 0;
+    padding: 10px;
+    border-radius: 6px;
+    border: none;
+    background: #9E1B32;
+    color: white;
+    font-weight: 500;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #b51e3b;
+}
+
+/* ============================= */
+/* GPS FIX INDICATOR */
+/* ============================= */
+#gpsFix {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: red;
+}
+

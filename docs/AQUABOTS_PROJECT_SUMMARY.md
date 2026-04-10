@@ -1,5 +1,5 @@
 # AQUABOTS PROJECT — COMPREHENSIVE SUMMARY
-## Communications & Power Systems (For Claude Code Context)
+## Communications & Power Systems
 
 **Project:** AQUABOTS Aeropak — Autonomous Underwater/Surface Swarm Drones
 **Course:** ENGR 498B Spring 2026, University of Arizona (Team 26061)
@@ -382,14 +382,12 @@ The following documents were created through conversations in this project and a
 
 ---
 
-## 8. IMPORTANT NOTES FOR CLAUDE CODE
+## 8. DEVELOPMENT NOTES
 
-- John prefers **technical accuracy over promotional language**. Use verified test results and concrete metrics, not "braggy" stats like lines of code.
 - The SRVM (System Requirements Verification Matrix) format is critical for formal engineering reviews.
-- When generating documents, John likes **Markdown and Typst** formats (Typst for professional PDF compilation).
-- The project uses **GitHub** for code management.
-- ESP-IDF v5.5.x is the development framework — all code is C for embedded systems.
+- ESP-IDF v5.5.x is the development framework — all firmware code is C for embedded systems.
 - The ESP32-S3 firmware is a **single binary** that runs on all nodes; identity is provisioned at runtime via NVS.
 - Formation control (Step 6) was completed and verified on hardware as of Feb 09, 2026, after the ISR_SWARM_COMMUNICATIONS_SUMMARY.md was written (which only covered Steps 1-5). The ISR slides reflect 6/9 steps complete.
-- The next coding work is Steps 7-9 (obstacle sensing and avoidance) and the remaining integration phases (propulsion interface, navigation, etc.).
-- Wiring was upgraded to 12 AWG post-ISR per judge recommendation — this is the most recent change.
+- Steps 7-9 (obstacle sensing and avoidance) are coded and pending hardware test.
+- Wiring was upgraded to 12 AWG post-ISR per judge recommendation.
+- Sensor consolidation (WG-2): IMU and GPS removed from ESP32, now using Pixhawk built-ins.

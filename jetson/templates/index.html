@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AquaBot Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+
+    <!-- Leaflet -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <style>
+        /* Table styling */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        table th, table td {
+            border: 1px solid rgba(255,255,255,0.15);
+            padding: 6px;
+            font-size: 14px;
+        }
+
+        table th {
+            background-color: rgba(255,255,255,0.05);
+        }
+
+        /* Grid layout for buttons */
+        .button-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .button-grid button {
+            width: 100%;
+        }
+
+        /* Overlay active state */
+        .overlay-active {
+            background-color: #0077ff !important;
+        }
+
+        /* Recording state */
+        .recording-active {
+            background-color: #00c853 !important;
+            color: white !important;
+        }
+    </style>
+</head>
+
+<body>
+
+<div class="header">
+    <h1>AquaBot Dashboard</h1>
+    <p>Team 26061 | University of Arizona</p>
+</div>
+
+<div class="container">
+
+    <!-- MAP -->
+    <div class="panel-column">
+        <h2 class="panel-title">Geo Overlay</h2>
+        <div class="panel geo-panel">
+            <div id="map" style="height:100%; width:100%; border-radius:8px;"></div>
+        </div>
+    </div>
+
+    <!-- VIDEO -->
+    <div class="panel-column">
+        <h2 class="panel-title">Live Video Stream</h2>
+
+        <div class="panel video-panel" style="position:relative;">
+            <video id="webrtcVideo"
+                   autoplay
+                   playsinline
+                   muted
+                   style="width:100%; height:100%; background:black; border-radius:8px;">
+            </video>
+
+            <div id="recordIndicator"
+                 style="position:absolute;
+                        top:10px;
+                        left:10px;
+                        background:red;
+                        padding:6px 12px;
+                        border-radius:6px;
+                        font-weight:bold;
+                        display:none;">
+                ● REC
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- ================= BOTTOM ================= -->
+<!-- ================= BOTTOM ================= -->
+<div class="bottom-row">
+
+    <!-- TELEMETRY TABLE -->
+    <div class="sensor-data" style="flex:2;">
+        <h3>Telemetry Log (Last 5)</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time</th>
+                    <th>Lat</th>
+                    <th>Lon</th>
+                    <th>Temp (°C)</th>
+                    <th>pH</th>
+                    <th>Sal</th>
+                </tr>
+            </thead>
+            <tbody id="telemetryTableBody"></tbody>
+        </table>
+    </div>
+
+    <!-- CONTROLS + OVERLAYS -->
+    <div class="buttons">
+
+        <h3>Controls</h3>
+
+        <div class="button-grid">
+            <button id="zoomIn">Zoom In</button>
+            <button id="zoomOut">Zoom Out</button>
+            <button id="startRecord">Start Recording</button>
+            <button id="stopRecord">Stop Recording</button>
+        </div>
+
+        <h3 style="margin-top:15px;">Sensor Overlays</h3>
+
+        <div class="button-grid">
+            <button id="toggleTemp">Temp</button>
+            <button id="togglePH">pH</button>
+            <button id="toggleSal">Salinity</button>
+            <button id="clearOverlay">Clear</button>
+        </div>
+
+    </div>
+
+    <!-- STATUS PANEL + THROTTLE -->
+    <div class="video-stats">
+
+        <p>
+            <strong>Video Latency:</strong>
+            <span id="videoLatency">--</span> ms
+        </p>
+
+        <p>
+            <strong>Speed:</strong>
+            <span id="speedKnots">0.0</span> kn
+        </p>
+
+        <p>
+            <strong>GPS Fix:</strong>
+            <span id="gpsFix"
+                  style="display:inline-block;
+                         width:14px;
+                         height:14px;
+                         border-radius:50%;
+                         background:red;">
+            </span>
+        </p>
+
+        <p>
+            <strong>Recording:</strong>
+            <span id="recordStatus"
+                  style="display:inline-block;
+                         width:14px;
+                         height:14px;
+                         border-radius:50%;
+                         background:red;">
+            </span>
+        </p>
+
+        <!-- ================= MOTOR SAFETY ================= -->
+        <h3 style="margin-top:20px;">Motor Safety</h3>
+
+        <div class="button-grid">
+            <button onclick="sendArm()">ARM</button>
+            <button onclick="sendDisarm()">DISARM</button>
+        </div>
+
+        <!-- ================= THROTTLE CONTROL ================= -->
+        <h3 style="margin-top:15px;">Throttle Control</h3>
+
+        <div class="button-grid">
+            <button onclick="setThrottle(0)">STOP</button>
+            <button onclick="setThrottle(25)">25%</button>
+            <button onclick="setThrottle(50)">50%</button>
+            <button onclick="setThrottle(75)">75%</button>
+            <button onclick="setThrottle(100)">FULL</button>
+        </div>
+
+    </div>
+
+</div>
+
+<script src="{{ url_for('static', filename='js/webrtc.js') }}"></script>
+
