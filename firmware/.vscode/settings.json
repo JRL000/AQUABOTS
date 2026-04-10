@@ -4,7 +4,7 @@
   "clangd.arguments": [
     "--background-index",
     "--query-driver=**",
-    "--compile-commands-dir=c:\\Users\\johnr\\AQUABOTS\\John\\Firmware\\swarmLogic\\build"
+    "--compile-commands-dir=${workspaceFolder}/build"
   ],
   "idf.portWin": "COM8",
   "idf.buildPath": "${workspaceFolder}\\build",

@@ -53,3 +53,19 @@ install_manifest.txt
 compile_commands.json
 *.suo
 *.user
+
+# Claude Code context (local only, not part of the project)
+Claude/
+CLAUDE.md
+
+# Stale build directories
+firmwarebuild/
+
+# Desktop metadata
+Desktop.ini
+
+# Integration scratch space (not versioned)
+integration/
+
+# Notes (local only)
+notes/

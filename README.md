@@ -2,87 +2,121 @@
 
 **University of Arizona ENGR 498B — Spring 2026**
 
-Autonomous surface vehicle (ASV) swarm platform.  Three boats operate as a
-coordinated swarm using ESP-NOW for inter-node communication.  The leader boat
-carries a Jetson Orin Nano, Starlink Mini, and IMX219 camera; follower boats
-run a Raspberry Pi + ESP32-S3.
+Autonomous surface vehicle (ASV) swarm platform for environmental monitoring.
+Three drones operate as a coordinated swarm using ESP-NOW for inter-node
+communication. The main/gateway drone carries a Jetson Orin Nano, Starlink Mini,
+IMX219 camera, and Pixhawk 4X flight controller; follower drones run a
+Raspberry Pi + ESP32-S3.
 
 ---
 
-## Repository layout
+## Repository Layout
 
 ```
 AQUABOTS/
-├── firmware/          ESP32-S3 swarm logic (ESP-IDF v5.x, FreeRTOS)
-│   └── main/          All C source files — see firmware/main/README.md
-├── ground_station/    Jetson Orin Nano Python dashboard
-│   └── README.md      Setup, config, and data-pipeline docs
-├── docs/              Project documents (CDR, ISR, integration plan)
-│   └── pics/          Hardware and testing photos
+├── firmware/          ESP32-S3 swarm firmware (ESP-IDF v5.x, C)
+│   ├── main/          All source files — see firmware/main/README.md
+│   └── .devcontainer/ Docker dev environment for ESP-IDF
+├── jetson/            Jetson Orin Nano onboard software (Python)
+│   ├── app.py         Main integration server (Flask + MAVLink + sensors)
+│   ├── webrtc_sender.py  Camera WebRTC pipeline
+│   └── README.md      Setup and architecture docs
+├── docs/              Project documents, power system changelog, wiring guides
 ├── reference/         Previous team's CAD files and reference code
 └── README.md          This file
 ```
 
 ---
 
-## Hardware overview
+## Hardware Overview
 
-| Component | Leader boat | Follower boats |
+| Component | Main/Gateway Drone | Follower Drones |
 |---|---|---|
-| Compute | Jetson Orin Nano | Raspberry Pi |
+| Compute | NVIDIA Jetson Orin Nano | Raspberry Pi |
+| Flight Controller | Pixhawk 4X (ArduPilot Rover) | — |
 | Comms MCU | ESP32-S3 | ESP32-S3 |
 | Connectivity | Starlink Mini | — |
 | Camera | IMX219 (CSI) | — |
-| Obstacle sensor | DFRobot A02YYUW ultrasonic | DFRobot A02YYUW ultrasonic |
-| Battery | Ovonic 6S 6000 mAh 22.2V | — |
+| ESC / Motor | 80A ESC / Apisqueen 5080 | TBD |
+| Sensors | pH (Atlas EZO), TDS, DS18B20 temp, ultrasonic | Same |
+| Battery (demo) | Ovonic 6S LiPo 22.2V / 6Ah | — |
+| Battery (production) | LiTime 24V LiFePO4 100-200Ah | — |
 
 ---
 
 ## Subsystems
 
-### `firmware/` — ESP32-S3 swarm firmware
+### `firmware/` — ESP32-S3 Swarm Firmware
 
-Written in C with ESP-IDF v5.x and FreeRTOS.  All boats run the same binary;
-identity is stored in NVS flash.
-
-Key modules:
+Written in C with ESP-IDF v5.5.x and FreeRTOS. All boats run the same binary;
+identity is stored in NVS flash. 9 modules covering the full swarm stack:
 
 | Module | Description |
 |---|---|
-| `node_config` | NVS-backed node identity (node_id 1–254) |
+| `node_config` | NVS-backed node identity (node_id 1-254) |
 | `swarm_transport` | ESP-NOW send/receive, ping/ack diagnostics |
 | `membership` | Peer discovery, heartbeat, active member table |
-| `leader_election` | Highest-node-id election with cooldown |
+| `leader_election` | Highest-node-id election with TDMA scheduling |
 | `scheduler` | TDMA slot coordination (50 ms slots) |
-| `command_engine` | Command parsing, routing, and execution |
-| `formation` | Line, wedge, circle, column patterns |
-| `obstacle_sense` | Pluggable sensor abstraction layer |
-| `a02yyuw` | DFRobot A02YYUW UART driver (9600 baud) |
+| `command_engine` | Command parsing, routing, execution (GOTO/HOLD/STOP/RESUME) |
+| `formation` | Line, wedge, circle, column patterns with configurable spacing |
+| `obstacle_sense` | Pluggable sensor abstraction with swarm-wide scan fusion |
+| `a02yyuw` | DFRobot A02YYUW ultrasonic sensor UART driver |
 | `avoidance` | State-machine collision avoidance (CLEAR/WARNING/DANGER) |
+
+**Status:** Steps 1-6 hardware-verified. Steps 7-9 (obstacle sensing + avoidance)
+coded, pending hardware test with ultrasonic sensor integration.
 
 See `firmware/main/README.md` for build instructions, console commands, and
 integration guide.
 
-### `ground_station/` — Jetson Orin Nano dashboard
+### `jetson/` — Jetson Orin Nano Onboard Software
 
-Python Flask app serving the operator dashboard.  Key components:
+Python code running on the Jetson. Handles:
 
-| File | Description |
-|---|---|
-| `app.py` | Flask server — dashboard, `/api/data`, iPerf3 test |
-| `serial_bridge.py` | UART bridge: ESP32-S3 → Jetson (IF-3) |
-| `mqtt_client.py` | MQTT cloud telemetry via Starlink (IF-4/IF-5) |
-| `config.py` | All IPs, ports, and serial settings (env-var overrides) |
-| `signaling_server.py` | WebRTC signaling server (WebSocket) |
+- **Pixhawk MAVLink** — GPS, heading, speed, arm/disarm, throttle control
+- **ESP32 sensor ingestion** — parses `TEMP:xx.x,SAL:xx.x,PH:xx.x` over serial
+- **WebRTC camera streaming** — IMX219 via GStreamer/nvarguscamerasrc
+- **Operator dashboard** — Flask web UI with Leaflet map, video, telemetry, motor controls
+- **Telemetry logging** — CSV and WebSocket broadcast to ground station
 
-See `ground_station/README.md` for deployment instructions and environment
-variable reference.
+See `jetson/README.md` for setup and architecture details.
 
 ---
 
-## Quick start
+## Communication Architecture
 
-### Firmware
+| Interface | Connection | Protocol | Status |
+|---|---|---|---|
+| IF-1 | ESP32 <-> Pixhawk | MAVLink / UART | Planned |
+| IF-2 | Sensors -> ESP32 | I2C / ADC / 1-Wire | Active |
+| IF-3 | ESP32 <-> Jetson | UART 115200 | Active |
+| IF-4 | Drone <-> Cloud | Starlink / MQTT | Planned |
+| IF-5 | Cloud <-> Ground Station | MQTT + WebSocket | Active |
+| IF-6 | Drone <-> Drone | ESP-NOW | Complete |
+
+**Swarm topology:** Hybrid star-mesh. Main drone = gateway (Starlink + ESP-NOW).
+Followers = ESP-NOW only.
+
+---
+
+## Power System (Rev WG-2)
+
+- **Demo battery:** 6S LiPo 22.2V / 6000mAh (~51 min endurance)
+- **Production battery:** LiFePO4 24V / 100-200Ah (5+ hours)
+- **Same wiring harness for both** — swap MRBF fuse element + adapter pigtail
+- **Main fuse:** MRBF 100A (prod) / 40A (demo) -> Kill switch -> (+) Busbar
+- **Motor branch:** 8 AWG, MIDI 60A fuse
+- **EMI filtering** designed (Rev ISR-4b), all parts on hand, pending install
+
+Full power system spec: `docs/AQUABOTS_POWER_SYSTEM_CHANGELOG.md`
+Wiring guide: `docs/AQUABOTS_WIRING_GUIDE.md` (pending)
+
+---
+
+## Quick Start
+
+### Firmware (ESP32-S3)
 
 ```bash
 cd firmware
@@ -93,17 +127,23 @@ idf.py -p <PORT> flash monitor
 
 Provision node identity at the serial console:
 ```
-config set_id <1-254>
+swarm> set_node_id <1-254>
 ```
 
-### Ground station
+### Jetson
 
 ```bash
-cd ground_station
-pip install -r requirements.txt
-export AQUABOT_SIGNALING_CLIENT_HOST=<jetson-lan-ip>
-python app.py           # starts Flask + serial bridge + MQTT
-python signaling_server.py   # separate terminal
+# SSH into the Jetson
+ssh mayra@<jetson-ip>
+
+# Activate the venv
+source ~/AquaBotGUI_WebRTC/venv/bin/activate
+
+# Start signaling server (terminal 1)
+python3 signaling_server.py
+
+# Start main server (terminal 2)
+python3 app.py
 ```
 
 Open `http://<jetson-ip>:5000` in a browser.
@@ -114,19 +154,7 @@ Open `http://<jetson-ip>:5000` in a browser.
 
 | Name | Role |
 |---|---|
-| John | ESP32-S3 swarm firmware, Power System & Integration |
-| Mayra | Ground station dashboard |
+| John | ESP32-S3 swarm firmware, power system design, full hardware integration |
+| Mayra | Ground station dashboard, Starlink comms, Jetson-side programming |
 | Jamie | Water quality sensors (pH, salinity, temperature) |
 | Robert | Propulsion / ESC hardware |
-
-
----
-
-## Interfaces (from Software Integration Plan)
-
-| ID | Description | Status |
-|---|---|---|
-| IF-1 | ESP32-S3 ↔ Pixhawk (MAVLink UART) | Pending |
-| IF-3 | ESP32-S3 ↔ Jetson (sensor UART) | Wired, driver ready |
-| IF-4/5 | Jetson ↔ Cloud (MQTT via Starlink) | Client ready, broker TBD |
-| IF-6 | ESP32-S3 ↔ ESP32-S3 (ESP-NOW) | Complete |

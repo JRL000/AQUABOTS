@@ -414,7 +414,7 @@ GPIO18   ──────────────────►  Blue
 ### Build
 
 ```bash
-cd swarmLogic
+cd firmware
 
 # Build firmware (single binary for all nodes)
 idf.py build
