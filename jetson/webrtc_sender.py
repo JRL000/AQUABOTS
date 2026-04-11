@@ -7,9 +7,14 @@ import cv2
 import numpy as np
 import websockets
 import serial
+import gi
+gi.require_version('Gst', '1.0')
+from gi.repository import Gst
 from aiortc import RTCPeerConnection, RTCSessionDescription, VideoStreamTrack
 from aiortc.mediastreams import VideoFrame
 from datetime import datetime
+
+Gst.init(None)
 
 # ============================================
 # SERVERS
@@ -67,31 +72,44 @@ pixhawk_data = {
 }
 
 # ============================================
-# CAMERA TRACK (UNCHANGED VIDEO PIPELINE)
+# CAMERA TRACK — PyGObject GStreamer backend
+# Bypasses OpenCV's broken NvBufSurfaceFromFd
+# on JetPack 6.2 (dmabuf_fd = -1 issue)
 # ============================================
 
 class CameraVideoTrack(VideoStreamTrack):
     def __init__(self):
         super().__init__()
 
-        self.cap = cv2.VideoCapture(
+        self._pipeline = Gst.parse_launch(
             "nvarguscamerasrc ! "
-            "video/x-raw(memory:NVMM), width=1920, height=1080, framerate=30/1 ! "
+            "video/x-raw(memory:NVMM), width=1280, height=720, framerate=60/1 ! "
             "nvvidconv flip-method=2 ! "
             "video/x-raw, width=640, height=480, format=BGRx ! "
             "videoconvert ! video/x-raw, format=BGR ! "
-            "appsink drop=true sync=false",
-            cv2.CAP_GSTREAMER,
+            "appsink name=sink max-buffers=1 drop=true sync=false"
         )
+        self._sink = self._pipeline.get_by_name('sink')
+        self._pipeline.set_state(Gst.State.PLAYING)
+        print("[CAM] GStreamer pipeline started")
+
+    def _pull_frame(self):
+        sample = self._sink.emit('pull-sample')
+        if sample is None:
+            return np.zeros((480, 640, 3), dtype=np.uint8)
+        buf = sample.get_buffer()
+        success, info = buf.map(Gst.MapFlags.READ)
+        if not success:
+            return np.zeros((480, 640, 3), dtype=np.uint8)
+        frame = np.frombuffer(info.data, dtype=np.uint8).reshape(480, 640, 3).copy()
+        buf.unmap(info)
+        return frame
 
     async def recv(self):
         global zoom_level, is_recording, video_writer
 
         pts, time_base = await self.next_timestamp()
-        ret, frame = self.cap.read()
-
-        if not ret:
-            frame = np.zeros((480, 640, 3), dtype=np.uint8)
+        frame = self._pull_frame()
 
         # DIGITAL ZOOM (UNCHANGED)
         h, w, _ = frame.shape
