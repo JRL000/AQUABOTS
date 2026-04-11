@@ -1,0 +1,12 @@
+[Unit]
+Description=MAVProxy MAVLink router (Pixhawk to QGC + app.py)
+After=network.target tailscaled.service
+Wants=network.target
+
+[Service]
+ExecStart=/home/mayra/AquaBotGUI_WebRTC/venv/bin/python3 /home/mayra/mavproxy_launcher.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
