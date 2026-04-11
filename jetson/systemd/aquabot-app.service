@@ -1,0 +1,13 @@
+[Unit]
+Description=AquaBot Flask dashboard (port 5000)
+After=network.target mavproxy.service
+Wants=network.target
+
+[Service]
+ExecStart=/home/mayra/AquaBotGUI_WebRTC/venv/bin/python3 /home/mayra/AquaBotGUI_WebRTC/app.py
+WorkingDirectory=/home/mayra/AquaBotGUI_WebRTC
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
