@@ -11,6 +11,7 @@ idf_component_register(
         "obstacle_sense.c"
         "a02yyuw.c"
         "avoidance.c"
+        "sensor_bridge.c"
     INCLUDE_DIRS
         "."
 )
