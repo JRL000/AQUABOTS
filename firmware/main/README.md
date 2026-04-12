@@ -383,7 +383,7 @@ Every pin, ADC channel, UART port, baud rate, and task period is exposed as a
 | Sensor | Interface | Default Pins |
 |--------|-----------|--------------|
 | DS18B20 temperature | 1-Wire via `onewire_bus` + `ds18b20` managed components | GPIO 4 |
-| TDS / salinity | ADC1 CH0 oneshot (12 dB atten), 16-sample avg + cubic-polynomial temp-compensated salinity math ported from Jamie's Arduino code | GPIO 1 |
+| TDS / salinity | ADC1 CH0 oneshot (12 dB atten), 16-sample avg + cubic-polynomial temp-compensated salinity math (ported from the team's prior Arduino prototype) | GPIO 1 |
 | Atlas Scientific EZO pH | UART1 @ 9600 baud, passive drain, validates 0 < pH < 14 | RX GPIO 16 / TX GPIO 17 |
 | Jetson output | UART2 @ 115200 baud | TX GPIO 47 / RX GPIO 48 |
 

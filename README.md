@@ -25,7 +25,6 @@ AQUABOTS/
 │   ├── signaling_server.py WebRTC signaling relay
 │   ├── systemd/            User unit files for all four services
 │   ├── templates/, static/ Operator dashboard (Flask + Leaflet)
-│   ├── CHANGES_FOR_MAYRA.md  Log of modifications to Mayra's files
 │   └── README.md           Setup and architecture docs
 ├── docs/                   Power system changelog, Pixhawk ESC wiring, misc
 ├── Claude/
@@ -122,17 +121,18 @@ Followers = ESP-NOW only.
 
 ---
 
-## Power System (Rev WG-2)
+## Power System (Rev FAR-1 / WG-3)
 
 - **Demo battery:** 6S LiPo 22.2V / 6000mAh (~51 min endurance)
 - **Production battery:** LiFePO4 24V / 100-200Ah (5+ hours)
 - **Same wiring harness for both** — swap MRBF fuse element + adapter pigtail
 - **Main fuse:** MRBF 100A (prod) / 40A (demo) -> Kill switch -> (+) Busbar
 - **Motor branch:** 8 AWG, MIDI 60A fuse
-- **EMI filtering** designed (Rev ISR-4b), all parts on hand, pending install
+- **Converter consolidation (FAR-1):** ESP32 now runs off the 12V buck rail alongside the Jetson + fan. The freed 5V buck feeds the Pixhawk POWER port (replaces the dedicated 5V Power Module). Four ATO branches total: 7.5A Starlink, 3A 12V buck, 2A 5V buck (Pixhawk), 2A BEC/servo.
+- **EMI filtering** designed (Rev ISR-4b + FAR-1 updates), all parts on hand, pending install.
 
-Full power system spec: `docs/AQUABOTS_POWER_SYSTEM_CHANGELOG.md`
-Wiring guide: `Claude/project-docs/AQUABOTS_WIRING_GUIDE.md` (Rev WG-2, patched 04-11-2026)
+Full power system spec: `docs/AQUABOTS_POWER_SYSTEM_CHANGELOG.md` (Rev FAR-1)
+Wiring guide: `Claude/project-docs/AQUABOTS_WIRING_GUIDE.md` (Rev WG-3)
 
 ---
 
@@ -174,13 +174,3 @@ For manual debug runs, stop the corresponding systemd unit first so it
 doesn't fight over ports / serial devices. See `jetson/README.md` for the
 full architecture.
 
----
-
-## Team
-
-| Name | Role |
-|---|---|
-| John | ESP32-S3 swarm firmware, power system design, full hardware integration |
-| Mayra | Ground station dashboard, Starlink comms, Jetson-side programming |
-| Jamie | Water quality sensors (pH, salinity, temperature) |
-| Robert | Propulsion / ESC hardware |

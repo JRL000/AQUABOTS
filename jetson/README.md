@@ -21,7 +21,7 @@ jetson/
 ├── signaling_server.py    WebRTC signaling relay (WebSocket, port 8765)
 ├── pixhawk_test.py        Standalone Pixhawk MAVLink diagnostic
 ├── telemetry_bridge.py    Simple serial-to-WebSocket bridge (utility)
-├── CHANGES_FOR_MAYRA.md   Log of every modification made to Mayra's files
+├── CHANGES_FOR_MAYRA.md   Log of modifications made to the original GUI/Starlink code
 ├── systemd/               systemd user unit files for all 4 services
 │   ├── mavproxy.service
 │   ├── aquabot-app.service
@@ -199,7 +199,7 @@ Installed in the venv on the Jetson (`/home/mayra/AquaBotGUI_WebRTC/venv/`):
 
 ## Absolute Constraints — Camera Stack
 
-The camera pipeline has hard constraints (Mayra's `~/DO_NOT_UPGRADE_CAMERA.md`):
+The camera pipeline has hard constraints (documented on the Jetson at `~/DO_NOT_UPGRADE_CAMERA.md`):
 
 - **NEVER** `apt upgrade nvidia-*` packages
 - **NEVER** `pip install opencv-python`
@@ -222,8 +222,8 @@ If the camera pipeline breaks, the project is blocked.
 
 ---
 
-## Changes to Mayra's Files
+## Modifications Log
 
-All modifications made to Mayra's original code are logged in
+All modifications made to the original GUI / Starlink code are logged in
 [`CHANGES_FOR_MAYRA.md`](CHANGES_FOR_MAYRA.md) with rationale and diffs.
 Read that file before editing any of the files above.
