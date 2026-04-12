@@ -2,24 +2,16 @@
 ## Wiring & Verification Guide
 
 **Date:** 04-08-2026 (Rev 1), reviewed 04-11-2026
-**Author:** John Lopez — Systems Integration Lead
 **Status:** Wiring complete. Motor armed and throttled from GUI (MAVLink RC override) verified 04-10-2026 bench test. This guide is now a reference for rebuilds / replacements, not a live pre-wiring checklist.
 
 ---
 
-## Critical Context: Design vs. This Test
+## Critical Context: ESC Signal Source
 
-Your power/signal spec (`AQUABOTS_PROJECT_SUMMARY.md`, §2.4) specifies:
-
-```
-ESP32 → ESC (PWM) | PWM 50Hz | 3.3V logic | 22 AWG | Servo 3-pin
-```
-
-**Pixhawk** handles all flight control — motor/ESC PWM, navigation, attitude, heading.  
+**Pixhawk** handles all flight control — motor/ESC PWM, navigation, attitude, heading.
 **ESP32** handles sensors and ESP-NOW inter-drone communication only.
 
-The Pixhawk → ESC path described in this guide is the **final design**.  
-Note: `AQUABOTS_PROJECT_SUMMARY.md §2.4` incorrectly lists `ESP32 → ESC (PWM)` — that entry is outdated.
+The Pixhawk → ESC path described in this guide is the **final design**. The project summary (`AQUABOTS_PROJECT_SUMMARY.md` §2.4) is aligned with this as of Rev FAR-1.
 
 ---
 
@@ -54,8 +46,8 @@ These follow the existing harness design:
 
 | From | To | Wire | Fuse |
 |------|----|------|------|
-| (+) Busbar | ESC positive lead | 12 AWG red | MIDI 125A |
-| (–) Busbar | ESC negative lead | 12 AWG black | — (return path) |
+| (+) Busbar | ESC positive lead | 8 AWG red | MIDI 60A |
+| (–) Busbar | ESC negative lead | 8 AWG black | — (return path) |
 
 > **Do not connect battery until all signal wiring is verified (see Step 3 below).**
 
@@ -157,19 +149,19 @@ The ESC must learn the throttle endpoints from the Pixhawk before it will respon
 
 ---
 
-## Open Questions (resolve before proceeding)
+## Configuration Notes (Resolved as of 04-11-2026 bench test)
 
-| Question | Why It Matters |
-|----------|---------------|
-| ArduPilot or PX4 on Pixhawk? | Affects output channel mapping and arming procedure |
-| Has ESC been calibrated before? | Uncalibrated ESC will not respond to Pixhawk PWM endpoints |
-| Safety switch installed? | Pixhawk 4X requires it pressed before arming works |
-| RC radio or QGroundControl joystick? | Affects how you arm and command throttle during test |
+| Item | Current Setting |
+|------|-----------------|
+| Firmware | ArduPilot ArduRover (Rover / Boat frame) |
+| ESC calibrated | Yes (bench test 04-10-2026) |
+| Safety switch | Installed and pressed-solid before arming |
+| Command source | QGroundControl joystick and operator-dashboard MAVLink RC override |
 
 ---
 
 ## Architecture Note
 
-Pixhawk handles all flight control — motor/ESC PWM, navigation, attitude, heading.  
-ESP32 handles sensors (pH, salinity, temp, IMU, GPS, ultrasonic) and ESP-NOW inter-drone communication.  
+Pixhawk handles all flight control — motor/ESC PWM, navigation, attitude, heading.
+ESP32 handles sensors (pH via UART, temp via 1-Wire, TDS/salinity via ADC, ultrasonic via UART) and ESP-NOW inter-drone communication. IMU and GPS are now the Pixhawk's built-ins (see `AQUABOTS_WIRING_GUIDE.md` Rev WG-3 — S7/S11 removed).
 The Pixhawk → ESC connection above is the **final design**, not a temporary test path.
