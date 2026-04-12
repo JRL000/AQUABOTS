@@ -2,7 +2,7 @@
 
 **Team 26061 | ENGR 498B Spring 2026**
 **Owner:** John (Software Integration Lead / Power System Design)
-**Last Updated:** 2026-03-04 (Rev ISR-4)
+**Last Updated:** 03-04-2026 (Rev ISR-4)
 
 ---
 
@@ -174,7 +174,7 @@ All EMI filtering components, placement locations, and soldering instructions ar
 
 ## 2. CHANGELOG
 
-### Rev ISR-4 (2026-03-04) — EMI Filtering Addition
+### Rev ISR-4 (03-04-2026) — EMI Filtering Addition
 
 **Added EMI filtering across all power branches and critical signal lines:**
 
@@ -212,7 +212,7 @@ All EMI filtering components, placement locations, and soldering instructions ar
 **Estimated cost:** ~$22-25 for all filtering components.
 **Wiring diagram updated:** AQUABOTS_WIRING_DIAGRAM.html now shows all EMI components (Rev ISR-4).
 
-### Rev ISR-3 (2026-03-04) — Fuse Coordination Audit + Wire Corrections
+### Rev ISR-3 (03-04-2026) — Fuse Coordination Audit + Wire Corrections
 
 **Critical fixes:**
 
@@ -252,7 +252,7 @@ All EMI filtering components, placement locations, and soldering instructions ar
    - Starlink Mini accepts 12–48V DC. Both 22.2V (demo) and 25.6V (prod) are in range.
    - Path: (+) Busbar → ATO 7.5A SB → Starlink Mini. No voltage conversion.
 
-### Rev ISR-2 (2026-03-04) — Dual Configuration Design
+### Rev ISR-2 (03-04-2026) — Dual Configuration Design
 
 - Added production (LiTime LiFePO4) / demo (Ovonic LiPo) dual-config concept.
 - Designed XT90 adapter pigtail for demo battery connection.

@@ -2,6 +2,9 @@
 # AQUABOTS — root .gitignore
 # -----------------------------------------------------------------------
 
+# Claude Code local settings
+.claude/
+
 # Windows system files
 Desktop.ini
 Thumbs.db

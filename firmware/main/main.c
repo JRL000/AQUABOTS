@@ -17,6 +17,7 @@
  *   8. formation     — coordinated spatial formation control
  *   9. obstacle_sense — sensor abstraction and swarm-wide scan fusion
  *  10. avoidance     — collision avoidance policy engine
+ *  11. sensor_bridge — water-quality sensors (TEMP/SAL/PH) → Jetson UART
  *
  * If a real A02YYUW ultrasonic sensor is connected, call a02yyuw_init()
  * here before obstacle_sense_start() and register the hardware driver:
@@ -45,6 +46,7 @@
 #include "formation.h"
 #include "obstacle_sense.h"
 #include "avoidance.h"
+#include "sensor_bridge.h"
 /* Uncomment to use real A02YYUW hardware sensor: */
 /* #include "a02yyuw.h" */
 
@@ -428,6 +430,7 @@ void app_main(void)
     formation_init();
     obstacle_sense_init();
     avoidance_init();
+    sensor_bridge_init();
 
     ESP_LOGI(TAG, "All modules initialised");
 
@@ -470,6 +473,7 @@ void app_main(void)
     formation_start();
     obstacle_sense_start();
     avoidance_start();
+    sensor_bridge_start();
 
     ESP_LOGI(TAG, "System running.");
     ESP_LOGI(TAG, "Console: help | info | members | leader | schedule |");

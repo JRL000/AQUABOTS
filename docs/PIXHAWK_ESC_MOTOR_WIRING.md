@@ -1,9 +1,9 @@
 # Pixhawk 4X → Apisqueen 80A ESC → Apisqueen 5080 Motor
 ## Wiring & Verification Guide
 
-**Date:** 2026-04-08  
-**Author:** John Lopez — Systems Integration Lead  
-**Status:** Pre-wiring — do not connect battery until Step 3 is complete
+**Date:** 04-08-2026 (Rev 1), reviewed 04-11-2026
+**Author:** John Lopez — Systems Integration Lead
+**Status:** Wiring complete. Motor armed and throttled from GUI (MAVLink RC override) verified 04-10-2026 bench test. This guide is now a reference for rebuilds / replacements, not a live pre-wiring checklist.
 
 ---
 

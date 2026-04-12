@@ -364,6 +364,48 @@ act independently.
 
 ---
 
+### sensor_bridge (`sensor_bridge.h / .c`)
+
+Peripheral I/O module for the **gateway** boat (not part of the swarm
+coordination stack). Reads three water-quality sensors and streams a CSV line
+to the Jetson over UART every 3 seconds in the format that
+`jetson/app.py:read_esp32()` already parses:
+
+```
+TEMP:23.45,SAL:0.324,PH:7.12\n
+```
+
+Every pin, ADC channel, UART port, baud rate, and task period is exposed as a
+`#define` at the top of `sensor_bridge.h` for one-file remapping.
+
+**Sensors:**
+
+| Sensor | Interface | Default Pins |
+|--------|-----------|--------------|
+| DS18B20 temperature | 1-Wire via `onewire_bus` + `ds18b20` managed components | GPIO 4 |
+| TDS / salinity | ADC1 CH0 oneshot (12 dB atten), 16-sample avg + cubic-polynomial temp-compensated salinity math ported from Jamie's Arduino code | GPIO 1 |
+| Atlas Scientific EZO pH | UART1 @ 9600 baud, passive drain, validates 0 < pH < 14 | RX GPIO 16 / TX GPIO 17 |
+| Jetson output | UART2 @ 115200 baud | TX GPIO 47 / RX GPIO 48 |
+
+Jetson UART is on GPIO 47/48 specifically to stay off GPIO 19/20 (native USB)
+and GPIO 43/44 (UART0 / swarm console). Note: GPIO 48 is the WS2812 RGB LED on
+ESP32-S3 DevKitC-1 v1.1 — if that's the board in play, remap
+`SENSOR_BRIDGE_JETSON_UART_RX_GPIO` to GPIO 15 or 21 before building.
+
+**Best-effort init:** only the Jetson UART is mandatory. Any missing sensor
+logs a warning and reports 0 / cached value without killing the task, so the
+module can run with a partial sensor set at the bench.
+
+**Managed component dependencies** (auto-fetched on first `idf.py build`):
+- `espressif/onewire_bus ^1.0.2`
+- `espressif/ds18b20 ^0.1.3`
+
+**Status:** code complete on `auto-nav` branch as of 04-11-2026. Bench
+verification (build + UART scope at 115200) pending; nothing has been flashed
+or scoped yet.
+
+---
+
 ## Hardware Setup
 
 ### Minimum (mock sensor mode)
@@ -862,7 +904,9 @@ main/
 ├── obstacle_sense.h / .c   Sensor abstraction and swarm-wide scan fusion
 ├── a02yyuw.h / .c          DFRobot A02YYUW ultrasonic sensor UART driver
 ├── avoidance.h / .c        Collision avoidance policy engine
-└── CMakeLists.txt          ESP-IDF component build configuration
+├── sensor_bridge.h / .c    DS18B20 + TDS + Atlas EZO pH reader; streams CSV to Jetson
+├── CMakeLists.txt          ESP-IDF component build configuration
+└── idf_component.yml       Managed-component manifest (onewire_bus, ds18b20)
 ```
 
 ---
@@ -890,4 +934,4 @@ main/
 
 *AQUABOTS Swarm Framework — ESP32-S3 Edition*
 *Platform: ESP32-S3 with ESP-IDF v5.5.x*
-*Last updated: February 2026*
+*Last updated: 04-11-2026*
