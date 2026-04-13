@@ -42,15 +42,15 @@ jetson/
 ## System Architecture
 
 ```
- Pixhawk 4X ──USB──> /dev/ttyACM0 ──owned by── mavproxy
-                                                  │
-                      ┌───────────────────────────┼─────────────────────────┐
-                      │                           │                         │
-                UDP 127.0.0.1:14552         UDP 127.0.0.1:14553       UDP <GCS>:14550
-                      │                           │                         │
-                      ▼                           ▼                         ▼
-                  app.py                    webrtc_sender.py         QGroundControl
-              (Flask + telemetry)          (telemetry overlay)        (over Tailscale)
+ Pixhawk 4X ──UART (TELEM2) ──> /dev/ttyTHS1 @ 57600 ──owned by── mavproxy
+                                                                      │
+                         ┌────────────────────────────────────────────┼───────────────────────┐
+                         │                                            │                       │
+                   UDP 127.0.0.1:14552                    UDP 127.0.0.1:14553           UDP <GCS>:14550
+                         │                                            │                       │
+                         ▼                                            ▼                       ▼
+                     app.py                                    webrtc_sender.py        QGroundControl
+                (Flask + telemetry)                          (telemetry overlay)        (over Tailscale)
 
  ESP32 ──USB──> /dev/ttyACM1 ──> app.py.read_esp32()  (TEMP:xx.x,SAL:xx.x,PH:xx.x @ 115200)
 
@@ -61,6 +61,12 @@ jetson/
 `mavproxy` exclusively owns the Pixhawk serial port. Everything that consumes
 MAVLink (app.py, webrtc_sender.py, QGroundControl) connects to a local or
 remote UDP endpoint.
+
+**Pixhawk link note:** the flight controller talks to the Jetson over the
+Pixhawk TELEM UART (not USB). Master port in `mavproxy_launcher.py` is
+`/dev/ttyTHS1` at 57600 baud. The physical wiring is Pixhawk TX/RX/GND →
+Jetson 40-pin header UART1 (pins 8/10/GND). There is no `/dev/ttyACM0` — any
+older reference to USB is stale.
 
 ---
 
@@ -174,11 +180,25 @@ python3 app.py
 
 | Device          | Baud   | Connected To                               |
 |-----------------|--------|--------------------------------------------|
-| `/dev/ttyACM0`  | 57600  | Pixhawk 4X — **owned exclusively by mavproxy** |
+| `/dev/ttyTHS1`  | 57600  | Pixhawk 4X TELEM UART — **owned exclusively by mavproxy** |
 | `/dev/ttyACM1`  | 115200 | ESP32 sensors (`TEMP:xx.x,SAL:xx.x,PH:xx.x`) |
 
-Note: device assignments may swap on reboot. Check `ls /dev/ttyACM*` if
-connections fail and update the systemd units accordingly.
+The Pixhawk is wired to the Jetson's 40-pin header UART (TEGRA High Speed
+UART 1), **not** a USB cable. If the link drops, check the TX/RX pin wiring
+(TX↔RX crossover) and common ground before suspecting software. USB
+enumeration (`lsusb`, `/dev/ttyACM*`) will show no Pixhawk device — this is
+expected.
+
+`/dev/ttyACM1` (ESP32) may or may not be present depending on whether the
+sensor bridge is connected; `app.py` handles the absence gracefully.
+
+Motor ESC and steering servo are connected to Pixhawk servo rail outputs,
+not to the Jetson:
+
+| Pixhawk output | Function | SERVOx_FUNCTION | Notes |
+|---|---|---|---|
+| MAIN OUT 1 | Steering servo | 26 (GroundSteering) | verified working |
+| MAIN OUT 3 | Motor ESC signal | 70 (Throttle)       | see `CHANGES_FOR_MAYRA.md` — 04-12-2026 motor investigation |
 
 ---
 

@@ -97,12 +97,47 @@ def disarm_vehicle():
         )
 
 def start_mission():
-    """Arm vehicle, switch to AUTO mode, and explicitly trigger mission start."""
+    """
+    Arm, switch to AUTO, confirm the mode change, then trigger MISSION_START.
+    Returns (success: bool, message: str).
+
+    AUTO requires EKF origin + HOME. With ARMING_CHECK=0 the arm succeeds
+    immediately, but ArduRover still refuses AUTO until HOME is set — the
+    old version ignored the rejection and sent MISSION_START anyway,
+    leaving the rover armed in MANUAL with no throttle/servo output.
+    """
     print("Starting mission: ARM + AUTO + MISSION_START")
+
+    # Nudge ArduPilot to (re)emit HOME_POSITION in case we started after it was already set.
+    with pixhawk_lock:
+        pixhawk.mav.command_long_send(
+            pixhawk.target_system,
+            pixhawk.target_component,
+            mavutil.mavlink.MAV_CMD_GET_HOME_POSITION,
+            0,
+            0, 0, 0, 0, 0, 0, 0
+        )
+
+    wait_deadline = time.time() + 30
+    while not home_set and time.time() < wait_deadline:
+        time.sleep(0.2)
+    if not home_set:
+        msg = "HOME not set after 30s — wait for GPS/EKF lock, then retry"
+        print(f"[MISSION] {msg}")
+        return False, msg
+
     arm_vehicle()
     time.sleep(1)
+
     set_mode("AUTO")
-    time.sleep(0.3)
+    mode_deadline = time.time() + 3
+    while mode != "AUTO" and time.time() < mode_deadline:
+        time.sleep(0.1)
+    if mode != "AUTO":
+        msg = f"Mode change to AUTO rejected (still {mode}) — mission not started"
+        print(f"[MISSION] {msg}")
+        return False, msg
+
     with pixhawk_lock:
         pixhawk.mav.command_long_send(
             pixhawk.target_system,
@@ -112,6 +147,7 @@ def start_mission():
             0, 0, 0, 0, 0, 0, 0
         )
     print("MISSION_START command sent")
+    return True, "Mission started: ARM + AUTO + MISSION_START"
 
 def upload_mission_sync(waypoints_latlon):
     """
@@ -216,6 +252,7 @@ mode = "UNKNOWN"
 last_statustext = ""
 last_statustext_sev = 6  # MAV_SEVERITY: 0=EMERGENCY..6=INFO
 current_wp = 0  # MAV_SEVERITY: 0=EMERGENCY..6=INFO
+home_set = False  # flips True on first HOME_POSITION — AUTO mode requires this
 
 temp = 0
 sal = 0
@@ -269,7 +306,7 @@ def read_esp32():
 # PIXHAWK THREAD
 # =====================================================
 def read_pixhawk():
-    global lat, lon, heading, speed, armed, mode, last_statustext, last_statustext_sev, current_wp
+    global lat, lon, heading, speed, armed, mode, last_statustext, last_statustext_sev, current_wp, home_set
 
     print("Pixhawk: waiting for heartbeat...")
     pixhawk.wait_heartbeat()
@@ -327,6 +364,10 @@ def read_pixhawk():
                 last_statustext_sev = msg.severity
             elif msg_type == "MISSION_CURRENT":
                 current_wp = msg.seq
+            elif msg_type == "HOME_POSITION":
+                if not home_set:
+                    print("[MISSION] HOME set — EKF/GPS ready; AUTO mode unlocked")
+                home_set = True
 
         except Exception as e:
             print("Pixhawk error:", e)
@@ -374,10 +415,13 @@ async def control_handler(websocket):
                     continue
 
                 elif action == "go":
-                    threading.Thread(target=start_mission, daemon=True).start()
+                    loop = asyncio.get_event_loop()
+                    success, result = await loop.run_in_executor(
+                        None, start_mission
+                    )
                     await websocket.send(json.dumps({
-                        "status": "ok",
-                        "message": "Mission started: ARM + AUTO"
+                        "status": "ok" if success else "error",
+                        "message": result
                     }))
                     continue
 
