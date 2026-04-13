@@ -47,6 +47,11 @@ pixhawk = mavutil.mavlink_connection('udp:0.0.0.0:14552')
 # =====================================================
 current_throttle = 0
 
+# Slow-mode cap — uniformly caps Pixhawk's throttle output via MOT_THR_MAX.
+# False (default) = full power (100%). True = capped at SLOW_MODE_THR_MAX (30%).
+SLOW_MODE_THR_MAX = 30
+slow_mode_enabled = False
+
 def set_throttle(percent):
     pwm = int(1100 + (percent / 100.0) * 800)
     print(f"Throttle {percent}% → PWM {pwm}")
@@ -56,6 +61,21 @@ def set_throttle(percent):
             pixhawk.target_component,
             65535, 65535, pwm, 65535, 65535, 65535, 65535, 65535
         )
+
+def set_slow_mode(enabled):
+    """Toggle slow-mode throttle cap on the Pixhawk (MOT_THR_MAX param)."""
+    global slow_mode_enabled
+    value = float(SLOW_MODE_THR_MAX) if enabled else 100.0
+    print(f"Slow mode {'ON' if enabled else 'OFF'} → MOT_THR_MAX={value}")
+    with pixhawk_lock:
+        pixhawk.mav.param_set_send(
+            pixhawk.target_system,
+            pixhawk.target_component,
+            b'MOT_THR_MAX',
+            value,
+            mavutil.mavlink.MAV_PARAM_TYPE_REAL32
+        )
+    slow_mode_enabled = bool(enabled)
 
 def set_mode(mode):
     print(f"Setting mode: {mode}")
@@ -330,6 +350,10 @@ def read_pixhawk():
     # WP_SPEED: max navigation speed in AUTO mode (m/s).
     pixhawk.mav.param_set_send(ts, tc, b'WP_SPEED', float(WP_SPEED_MS),
                                mavutil.mavlink.MAV_PARAM_TYPE_REAL32)
+    # Reset MOT_THR_MAX to 100% on every boot so the param isn't stuck at
+    # whatever value slow_mode was left at last session. Slow mode is a
+    # runtime toggle, not a persistent config.
+    set_slow_mode(False)
 
     while True:
         try:
@@ -457,6 +481,15 @@ async def control_handler(websocket):
                     }))
                     continue
 
+                elif action == "slow_mode":
+                    enabled = bool(data.get("enabled", False))
+                    set_slow_mode(enabled)
+                    await websocket.send(json.dumps({
+                        "status": "ok",
+                        "message": f"Slow mode {'ON (30% cap)' if enabled else 'OFF (100%)'}"
+                    }))
+                    continue
+
             except (json.JSONDecodeError, TypeError):
                 pass  # not JSON, fall through to string commands
 
@@ -497,7 +530,8 @@ async def telemetry_broadcast():
             "ARMED": armed,
             "MODE": mode,
             "STATUS": last_statustext,
-            "STATUS_SEV": last_statustext_sev
+            "STATUS_SEV": last_statustext_sev,
+            "SLOW_MODE": slow_mode_enabled
         }
         last_statustext = ""
         message = json.dumps(data)

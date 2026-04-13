@@ -86,14 +86,15 @@
 // Jetson link  —  UART out
 // ============================================================================
 
-/* UART2 on GPIO 47 / 48 by default.
- * GPIO 19 and 20 are the ESP32-S3 native USB D-/D+ pins and must NOT be
- * used for general UART; GPIO 43 / 44 belong to UART0 / the USB-UART
- * bridge used by the swarm console.  UART2 on 47 / 48 keeps this link
- * fully independent of both. */
-#define SENSOR_BRIDGE_JETSON_UART_NUM       UART_NUM_2
-#define SENSOR_BRIDGE_JETSON_UART_TX_GPIO   GPIO_NUM_47
-#define SENSOR_BRIDGE_JETSON_UART_RX_GPIO   GPIO_NUM_48
+/* UART0 on GPIO 43 / 44 — bridged to the "UART" USB-C port on the
+ * DevKitC via the onboard USB-UART chip.  The Jetson connects to that
+ * port over USB-C→USB-A and sees /dev/ttyUSB0 @ 115200.
+ * NOTE: UART0 is also the IDF default console — swarm log output will
+ * be interleaved with sensor CSV lines.  The Jetson-side parser keys
+ * on the "TEMP:" prefix and ignores anything else. */
+#define SENSOR_BRIDGE_JETSON_UART_NUM       UART_NUM_0
+#define SENSOR_BRIDGE_JETSON_UART_TX_GPIO   GPIO_NUM_43
+#define SENSOR_BRIDGE_JETSON_UART_RX_GPIO   GPIO_NUM_44
 #define SENSOR_BRIDGE_JETSON_UART_BAUD      115200
 #define SENSOR_BRIDGE_JETSON_UART_BUF_SIZE  512
 

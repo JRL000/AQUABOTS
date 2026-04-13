@@ -115,7 +115,7 @@ static esp_err_t init_onewire_and_ds18b20(void)
     bool found = false;
     while (onewire_device_iter_get_next(iter, &device) == ESP_OK) {
         ds18b20_config_t ds_cfg = {};
-        if (ds18b20_new_device(&device, &ds_cfg, &s_state.ds18b20) == ESP_OK) {
+        if (ds18b20_new_device_from_enumeration(&device, &ds_cfg, &s_state.ds18b20) == ESP_OK) {
             ESP_LOGI(TAG, "DS18B20 found, ROM: 0x%016llX",
                      (unsigned long long)device.address);
             found = true;
@@ -242,6 +242,17 @@ static esp_err_t init_ph_uart(void)
 
 static esp_err_t init_jetson_uart(void)
 {
+    /* UART0 is owned by the IDF console; installing our own driver collides
+     * with NODE_CONFIG's serial console and reboots the chip.  Skip the
+     * install and let send_to_jetson() go through stdout instead. */
+    if (SENSOR_BRIDGE_JETSON_UART_NUM == UART_NUM_0) {
+        s_state.jetson_uart_ok = true;
+        ESP_LOGI(TAG, "Jetson output via console (UART0, TX=%d RX=%d, shared with swarm console)",
+                 SENSOR_BRIDGE_JETSON_UART_TX_GPIO,
+                 SENSOR_BRIDGE_JETSON_UART_RX_GPIO);
+        return ESP_OK;
+    }
+
     const uart_config_t cfg = {
         .baud_rate  = SENSOR_BRIDGE_JETSON_UART_BAUD,
         .data_bits  = UART_DATA_8_BITS,
@@ -470,7 +481,13 @@ static void send_to_jetson(const sensor_bridge_snapshot_t *snap)
         n = sizeof(line) - 1;
     }
 
-    uart_write_bytes(SENSOR_BRIDGE_JETSON_UART_NUM, line, n);
+    if (SENSOR_BRIDGE_JETSON_UART_NUM == UART_NUM_0) {
+        /* Share the console stream — Jetson-side parser keys on "TEMP:". */
+        fwrite(line, 1, n, stdout);
+        fflush(stdout);
+    } else {
+        uart_write_bytes(SENSOR_BRIDGE_JETSON_UART_NUM, line, n);
+    }
 }
 
 // ============================================================================

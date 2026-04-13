@@ -348,6 +348,27 @@ function updateArmButton(armed) {
 }
 
 // =====================
+// SLOW MODE
+// Caps Pixhawk MOT_THR_MAX at 30% (server-side). Button reflects telemetry.
+// =====================
+let slowModeState = false;
+
+function toggleSlowMode() {
+    if (!wsReady()) return;
+    const next = !slowModeState;
+    missionWS.send(JSON.stringify({ action: 'slow_mode', enabled: next }));
+    setMissionStatus(next ? 'Enabling slow mode (30% cap)...' : 'Disabling slow mode...');
+}
+
+function updateSlowModeButton(enabled) {
+    const btn = document.getElementById('btnSlowMode');
+    if (!btn) return;
+    slowModeState            = enabled;
+    btn.textContent          = enabled ? 'SLOW MODE: ON (30%)' : 'SLOW MODE: OFF';
+    btn.style.backgroundColor = enabled ? '#665500' : '';
+}
+
+// =====================
 // TELEMETRY PATCH
 // Drives ARM button, mode display, WP progress, Pixhawk alerts,
 // and the phase state machine from live vehicle telemetry.
@@ -357,6 +378,7 @@ window.updateTelemetryUI = function(t) {
     if (_origUpdateTelemetryUI) _origUpdateTelemetryUI(t);
 
     updateArmButton(!!t.ARMED);
+    if (typeof t.SLOW_MODE === 'boolean') updateSlowModeButton(t.SLOW_MODE);
 
     const modeEl = document.getElementById('currentMode');
     if (modeEl && t.MODE) modeEl.textContent = t.MODE;
@@ -379,22 +401,25 @@ window.updateTelemetryUI = function(t) {
         setMissionStatus('Pixhawk: ' + t.STATUS, t.STATUS_SEV <= 3);
     }
 
-    // Phase state machine — suppressed briefly after each button press to prevent flicker
+    // Phase state machine — suppressed briefly after each button press to prevent flicker.
+    // Disarmed is terminal: if the vehicle isn't armed, no mission is active, regardless
+    // of what mode Pixhawk reports. This prevents the GUI from latching into 'returning'
+    // when the boat finishes RTL but Pixhawk leaves the mode at RTL.
     if (t.MODE && Date.now() > modeUpdateSuppressUntil) {
-        const m      = t.MODE;
-        const disarmed = !t.ARMED;
-        if (m === 'AUTO') {
+        const m     = t.MODE;
+        const armed = !!t.ARMED;
+        if (!armed) {
+            if (['running','paused','returning','rth_paused'].includes(missionPhase)) {
+                setMissionPhase('complete');
+                setMissionStatus('Mission complete. Vehicle disarmed.');
+            }
+        } else if (m === 'AUTO') {
             if (missionPhase !== 'running') setMissionPhase('running');
         } else if (m === 'HOLD' || m === 'LOITER') {
             if      (missionPhase === 'running')   setMissionPhase('paused');
             else if (missionPhase === 'returning') setMissionPhase('rth_paused');
         } else if (m === 'RTL' || m === 'SMART_RTL') {
             if (missionPhase !== 'returning') setMissionPhase('returning');
-        } else if ((m === 'MANUAL' || m === 'STABILIZE') && disarmed) {
-            if (['running','paused','returning','rth_paused'].includes(missionPhase)) {
-                setMissionPhase('complete');
-                setMissionStatus('Mission complete. Vehicle disarmed.');
-            }
         }
     }
 };
