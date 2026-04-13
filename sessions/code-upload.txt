@@ -1,0 +1,101 @@
+  ┌───────────────────────────┬───────────────────────────────────────────────────────────────────────────┐
+  │           Role            │                                Jetson path                                │                                                                                                                                                                                 ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ Camera / WebRTC sender    │ /home/mayra/webrtc_jetson.py (note: different filename than in this repo) │                                                                                                                                                                                 ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ Flask + MAVLink + sensors │ /home/mayra/AquaBotGUI_WebRTC/app.py                                      │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ WebRTC signaling          │ /home/mayra/AquaBotGUI_WebRTC/signaling_server.py                         │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ Operator dashboard HTML   │ /home/mayra/AquaBotGUI_WebRTC/templates/index.html                        │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ Dashboard JS / CSS        │ /home/mayra/AquaBotGUI_WebRTC/static/                                     │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ mavproxy launcher         │ /home/mayra/mavproxy_launcher.py                                          │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ systemd unit files        │ /home/mayra/.config/systemd/user/*.service                                │
+  ├───────────────────────────┼───────────────────────────────────────────────────────────────────────────┤
+  │ Videos + telemetry CSVs   │ /home/mayra/videos/                                                       │ 
+  └───────────────────────────┴───────────────────────────────────────────────────────────────────────────┘
+
+  If you'd rather edit on your laptop and push a whole file, use scp:
+  scp webrtc_sender.py mayra@<jetson-ip>:/home/mayra/webrtc_jetson.py
+  (Note the rename — the repo calls it webrtc_sender.py, the Jetson calls it webrtc_jetson.py. The systemd unit points at the Jetson name.)
+
+  http://<jetson-ip>:5000
+  
+   Script is at C:\Users\johnr\AQUABOTS_GitHub\push-to-jetson.sh. Save these instructions somewhere (sticky note, notes app, whatever):
+
+  When you're ready to push the camera fix                                                                                                                                                                                                                                                
+  Prerequisites (one-time, already done on your machine — just sanity checks):                                                                                                                                                                                                              1. Tailscale is running on your laptop and the Jetson is online in your tailnet.
+  2. You can SSH in: ssh mayra@100.76.1.26 "echo ok" should print ok.
+
+  Push the camera fix
+  From a bash shell in the repo root (C:\Users\johnr\AQUABOTS_GitHub):
+  bash ./push-to-jetson.sh webrtc
+  That single command:
+  - scp's jetson/webrtc_sender.py to /home/mayra/webrtc_jetson.py on the Jetson
+  - restarts the webrtc service
+  - prints the last 30 log lines
+
+  What "success" looks like in the log
+  - [CAM] GStreamer pipeline started
+  - No Failed to create CaptureSession
+  - No NvBufSurfaceFromFd errors
+
+  Then open http://100.76.1.26:5000 and confirm the video panel is live.
+
+  If it fails
+  - Failed to create CaptureSession → CAM1 isn't seeing the sensor. Check ribbon cable on both ends (contacts toward the board, latches closed), then full power-cycle the Jetson (unplug power, wait 10 s, plug back in — not just a reboot, kernel needs to re-probe IMX219).
+  - sudo dmesg | grep imx219 on the Jetson should print a bound line — if not, the sensor isn't being detected at the driver level.
+  - Re-run bash ./push-to-jetson.sh webrtc after the power-cycle.
+
+  For any future edits
+
+  bash ./push-to-jetson.sh --help     # see all targets
+  bash ./push-to-jetson.sh webrtc     # camera
+  bash ./push-to-jetson.sh app        # app.py — Flask, MAVLink, sensors
+  bash ./push-to-jetson.sh ui         # dashboard HTML/JS/CSS
+  bash ./push-to-jetson.sh signaling  # WebRTC signaling
+  bash ./push-to-jetson.sh mavproxy   # Pixhawk UDP router
+  bash ./push-to-jetson.sh all        # everything
+
+  Edit locally in the repo → run the script → done. No manual nano, no remembering paths.
+
+  Hard rules unchanged: never apt upgrade on the Jetson, never pip install opencv-python, never touch JetPack/nvidia-*/GStreamer.
+> thanks. just need to be able to ssh into the jetson and im good right.                                                                                                                                                                                                                  
+● Yes — SSH + Tailscale to the Jetson is all you need. The script uses standard scp and ssh which ship with Windows OpenSSH.
+
+  One quality-of-life note: without an SSH key set up, each push-to-jetson.sh run will prompt for Mayra's password twice (once for scp, once for ssh). If that gets annoying, run this once (only needs to be done a single time, ever):                                                  
+  ssh-keygen -t ed25519 -N "" -f ~/.ssh/id_ed25519    # skip if ~/.ssh/id_ed25519 already exists                                                                                                                                                                                            ssh-copy-id mayra@100.76.1.26                        # asks for password once, never again
+
+  After that, every push is silent — no prompts.
+
+  And obviously: the Jetson has to be powered on and online in your tailnet when you push. ssh mayra@100.76.1.26 "echo ok" is your go/no-go check.
+  
+  
+  Syncing your laptop to auto-nav                                                                                                                                                                                                                                                         
+  Open a terminal on the laptop in the repo directory, then:                                                                                                                                                                                                                              
+  git fetch origin                 # pull down latest refs
+  git checkout auto-nav            # switch to the branch (if not already on it)
+  git pull origin auto-nav         # merge in the two new commits
+
+  You should see the two new commits land:
+  - e144f8f Docs: Rev FAR-1 power consolidation; strip ownership references
+  - 1a969bd Camera: pin nvarguscamerasrc to sensor-id=1; add push-to-jetson helper
+
+  If the laptop has uncommitted changes
+
+  git pull will refuse to overwrite them. Either:
+  - Keep them: git stash && git pull && git stash pop (stash, pull, re-apply — resolve any conflicts that pop up)
+  - Throw them away: git checkout -- . then git pull (only if you're sure they're disposable)
+
+  If the laptop has never seen the auto-nav branch before
+
+  git fetch origin
+  git checkout -b auto-nav origin/auto-nav
+
+  Sanity check once synced
+
+  git log --oneline -3             # top commit should be 1a969bd
+  ls push-to-jetson.sh             # file should exist
+
+  You're now free to run bash ./push-to-jetson.sh webrtc from the laptop when you're near the Jetson.
