@@ -5,6 +5,15 @@ Intended so John can accurately relay changes to Mayra.
 
 ---
 
+## Status as of 04-12-2026
+
+**Active investigation:** motor does not spin during AUTO mode even though the
+Pixhawk is commanding full throttle on SERVO3 (confirmed via `mav.tlog`). See
+"Changes — 04-12-2026" and "Open Investigation — Motor Hardware" sections
+below. The code changes in this session unblock AUTO mode entry and give the
+GUI an accurate success/error message; the remaining work is
+hardware/electrical, not software.
+
 ## Status as of 04-11-2026
 
 **Modifications have been made to several of Mayra's existing files** across
@@ -192,6 +201,158 @@ missionStatus hidden via CSS `:empty` when no message.
 **Date:** 04-10-2026
 Reduced global button `margin` from 6px → 4px and `padding` from 10px → 8px.
 **Why:** Bottom row was too tall with 4 panels; tighter spacing fits everything cleanly.
+
+---
+
+## Changes — 04-12-2026
+
+### `app.py` — `start_mission()` now waits for HOME + verifies AUTO mode transition
+
+**Problem observed:** pressing Start Mission in the GUI arrived "mission started"
+to the user, but the rover stayed armed in MANUAL and never drove. Root cause:
+`ARMING_CHECK=0` lets `COMPONENT_ARM_DISARM` succeed instantly, but ArduRover
+still refuses to enter AUTO mode until the EKF origin and HOME are set (which
+takes ~10–20 s after GPS lock). The old `start_mission()` fired
+`arm → sleep(1) → set_mode("AUTO") → sleep(0.3) → MISSION_START` blind, never
+checked the mode actually transitioned, and the `"go"` WS handler immediately
+replied `{"status":"ok"}` regardless.
+
+**Confirmed from mavproxy log:**
+```
+Got COMMAND_ACK: COMPONENT_ARM_DISARM: ACCEPTED    ← arm OK
+Got COMMAND_ACK: DO_SET_MODE: FAILED               ← AUTO rejected
+AP: Flight mode change failed
+Got COMMAND_ACK: MISSION_START: FAILED
+...
+AP: EKF3 IMU0 origin set                           ← 8s TOO LATE
+```
+
+**Fix:**
+1. New global `home_set = False`, flipped True when `read_pixhawk()` observes a
+   `HOME_POSITION` message.
+2. `start_mission()` rewritten to:
+   - send `MAV_CMD_GET_HOME_POSITION` on entry (covers warm-restart where HOME
+     was already set before `app.py` started),
+   - block up to 30 s waiting for `home_set`,
+   - arm,
+   - call `set_mode("AUTO")` and poll the existing `mode` global (updated in
+     real time from `HEARTBEAT`) for up to 3 s waiting for it to become
+     `"AUTO"`,
+   - only then fire `MAV_CMD_MISSION_START`,
+   - return `(success: bool, message: str)` to the caller.
+3. `control_handler` `"go"` action changed from `threading.Thread(...).start()`
+   (fire-and-forget, always "ok") to `loop.run_in_executor(None, start_mission)`
+   so it awaits the real result and sends the actual success/error back to the
+   GUI. Error strings the GUI will now receive:
+   - `"HOME not set after 30s — wait for GPS/EKF lock, then retry"`
+   - `"Mode change to AUTO rejected (still <MODE>) — mission not started"`
+   - `"Mission started: ARM + AUTO + MISSION_START"` (success)
+
+**Pushed to Jetson:** yes, via `bash ./push-to-jetson.sh app` on 04-12-2026.
+Verified — mission then entered AUTO cleanly (`16:05:56 Mode AUTO`,
+`MISSION_START: ACCEPTED`).
+
+**Follow-up for the GUI:** `static/js/controls.js:139` currently shows
+`"Mode did not switch to AUTO — check Pixhawk status above."` as a generic
+8-second timeout. Now that the `"go"` reply carries the real reason, the GUI
+could display `data.message` from the response directly instead. Not yet done.
+
+### Discovery: Pixhawk is on UART, not USB
+
+Earlier docs (and the previous version of `jetson/README.md`) said the Pixhawk
+connected via USB on `/dev/ttyACM0`. This is no longer true. Current wiring:
+**Pixhawk TELEM UART → Jetson 40-pin header UART1 → `/dev/ttyTHS1` @ 57600**.
+`lsusb` on the Jetson shows no Pixhawk device and no `/dev/ttyACM*` entries;
+this is expected, not a fault. `mavproxy_launcher.py` already targets
+`/dev/ttyTHS1` — the code was correct, only the documentation was stale.
+`jetson/README.md` has been updated.
+
+---
+
+## Open Investigation — Motor Hardware (04-12-2026)
+
+**Symptom:** Servo (steering) moves correctly during a mission. Motor does not
+spin. The ESC shows no lights and emits no beeps when powered.
+
+**Ruled out (software side is healthy):**
+- MAVLink link is up and mavproxy receives all 903 parameters.
+- Mission uploads with `MISSION_ACK: ACCEPTED`.
+- AUTO mode engages cleanly after the `start_mission()` fix above
+  (`Mode AUTO`, `MISSION_START: ACCEPTED`).
+- `/home/mayra/mav.tlog` confirms the Pixhawk is commanding the full PWM range
+  on the throttle channels during a mission (pulled with pymavlink, filtered
+  to `SERVO_OUTPUT_RAW`). Representative sample from a 04-12-2026 run:
+  ```
+  t+163.5s  s1=1611  s3=1551  s4=1551  s9=1557   ← throttle ramping up
+  t+168.5s  s1=1301  s3=1900  s4=1900  s9=1900   ← full forward (1900 µs)
+  t+172.0s  s1=1731  s3=1900  s4=1900  s9=1900   ← held at max
+  t+176.7s  s1=1500  s3=1546  s4=1546  s9=1542   ← ramping down at mission end
+  ```
+  `s3` = SERVO3 = throttle, `s1` = SERVO1 = steering. Both channels are driven.
+
+**Conclusion:** the problem is downstream of the Pixhawk output pin.
+
+**Relevant hardware state:**
+- Motor ESC signal wire lands on Pixhawk MAIN OUT 3 (SERVO3).
+- Steering servo is on MAIN OUT 1 (SERVO1) — this works, which confirms the
+  Pixhawk servo rail itself is powered and outputting.
+- ESC is silent on power-up: no LED, no beep.
+- ArduRover config has `SERVO3_TRIM=1500` (bidirectional throttle — center
+  = stop). Typical marine boat ESCs are unidirectional (1100 = stop,
+  1900 = full forward) and may refuse to spin if they see a "50 % throttle"
+  signal at arm time.
+
+**Leading hypotheses (in order of likelihood):**
+1. **ESC not getting main battery voltage** — an ESC that makes no sound at
+   all on power-up is almost always unpowered. A signal wire alone won't
+   produce any indicator response.
+2. **ESC signal ground not tied to Pixhawk ground** — without a common
+   ground, the PWM pulse has no voltage reference and the ESC may see noise
+   and stay silent.
+3. **ESC is unidirectional and the ArduRover trim is bidirectional.** If (1)
+   and (2) rule in favor of the ESC being physically alive, set
+   `SERVO3_TRIM`, `SERVO4_TRIM`, `SERVO9_TRIM` to `1100` and (usually) re-run
+   ESC throttle calibration.
+
+**Diagnostics to run next session (in order):**
+1. Confirm the ESC battery leads are connected with correct polarity and a
+   multimeter reads pack voltage across the ESC input terminals.
+2. With battery connected, listen for any beep/tone from the motor windings
+   on power-up. No sound → ESC isn't powered or is dead.
+3. Confirm the ESC signal cable ground is connected to a Pixhawk ground pin
+   (common ground is required).
+4. If the ESC is alive (beeps / LED), run a MANUAL throttle test without a
+   mission. The GUI does **not** currently have a throttle slider, so this
+   must be done over the existing control WS. From any host that can reach
+   the Jetson:
+   ```python
+   # python3, with `websockets` installed
+   import asyncio, websockets
+   async def run():
+       async with websockets.connect("ws://100.76.1.26:8770") as ws:
+           await ws.send("ARM")
+           await asyncio.sleep(2)
+           await ws.send("50")     # 50% throttle (PWM 1500)
+           await asyncio.sleep(3)
+           await ws.send("0")
+           await ws.send("DISARM")
+   asyncio.run(run())
+   ```
+   **Safety:** do this only with the propeller clear of obstructions.
+   `set_throttle(percent)` maps `0 → 1100` / `100 → 1900` on CH3 via
+   `RC_CHANNELS_OVERRIDE`, so the ESC sees the full unidirectional-forward
+   range during this test, which is a useful disambiguator vs. AUTO (which
+   sat at 1500 = "stop" for bidirectional ESCs until the throttle ramp).
+5. If MANUAL throttle also fails to spin the motor — focus on ESC power /
+   ground / calibration, not software.
+6. If MANUAL throttle spins the motor but AUTO doesn't — set the throttle
+   trims to 1100 as described in Hypothesis 3 above, then re-test a mission.
+
+**Params file for reference:** `/home/mayra/mav.parm` on the Jetson (saved
+04-12-2026 at 15:49:53 after the 903-parameter pull).
+
+**SSH note:** key-based login from the `ual-laptop` laptop to `mayra@100.76.1.26`
+was set up 04-12-2026. No password prompt is needed for `ssh` or `scp`.
 
 ---
 

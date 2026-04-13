@@ -99,7 +99,9 @@ Python code running on the Jetson. Handles:
 - **Deployment** — four systemd user services auto-start on boot (`mavproxy`, `aquabot-app`, `signaling`, `webrtc`)
 
 **Status:** deployed and operating on the Jetson; camera + mission + telemetry
-verified 04-11-2026. First pool AUTO-mode test is pending compass calibration.
+verified 04-11-2026. AUTO-mode entry + mission start fixed 04-12-2026 (see
+`jetson/CHANGES_FOR_MAYRA.md`). Outstanding: motor does not spin despite
+Pixhawk commanding full throttle PWM — hardware/ESC investigation open.
 
 See `jetson/README.md` for setup and architecture details.
 
