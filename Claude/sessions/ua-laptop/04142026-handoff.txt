@@ -1,0 +1,20 @@
+ I'm continuing work on the AQUABOTS project from another PC. Everything from our last session is committed and pulled to this machine on
+  ▎ branch auto-nav-test.
+  ▎
+  ▎ Before doing anything else, read these files to load full context:
+  ▎ - sessions/2026-04-14_boot-races_and_dual-cam.md — what we shipped, current Jetson state, open issues, and a verification/rollback cheat
+  ▎ sheet
+  ▎ - Claude/memory/hardware_camera_clamp.md — port A FPC clamp is broken, port C clamp is fine
+  ▎ - Claude/memory/jetson_camera_dt_overlay.md — dual-IMX219 DT overlay was flashed; backup path and revert command are in this file
+  ▎ - Claude/memory/jetson_systemd_layout.md — user-scope service topology and push workflow
+  ▎
+  ▎ Context in one sentence: we hardened four boot-time races in the Jetson code and flashed the dual-camera DT overlay, then the Jetson didn't
+  ▎ come back on the tailnet within ~3 min of the post-flash power cycle. Unknown whether the overlay caused a boot hang or if it was an
+  ▎ unrelated tailnet reconnect delay. First thing to do is verify whether ssh mayra@100.76.1.26 "echo up" responds; if yes, run the
+  ▎ verification block from the session notes to confirm both module0 and module1 enumerate; if no, walk me through recovery.
+  ▎
+  ▎ One uncommitted local change to be aware of: jetson/webrtc_sender.py has sensor-id=1 (deliberately not committed until cam1 is verified
+  ▎ end-to-end on the dual overlay). The committed baseline on auto-nav is sensor-id=0.
+  ▎
+  ▎ Also: if the live Claude memory folder at %USERPROFILE%\.claude\projects\C--Users-<this-user>-Documents-AQUABOTS\memory\ is empty on this
+  ▎ PC, install it per Claude/README.md so memory auto-loads in future sessions.
