@@ -1,0 +1,3 @@
+- [CSI camera clamp physically broken](memory/hardware_camera_clamp.md) — any `imx219 -121` probe failure on this Jetson is the broken FPC latch on port A, not software or cable orientation; port C clamp is fine.
+- [Jetson dual-IMX219 device tree overlay](memory/jetson_camera_dt_overlay.md) — Jetson was flashed to the dual-cam overlay on 2026-04-14 so both CSI ports enumerate; sensor-id=0 → port A, sensor-id=1 → port C.
+- [Jetson systemd user-service topology](memory/jetson_systemd_layout.md) — all four AquaBot services are user-scope units; cross-scope ordering to system units isn't enforceable, so code-level retries handle boot races.
