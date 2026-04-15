@@ -82,7 +82,7 @@ class CameraVideoTrack(VideoStreamTrack):
         super().__init__()
 
         self._pipeline = Gst.parse_launch(
-            "nvarguscamerasrc sensor-id=1 ! "
+            "nvarguscamerasrc sensor-id=0 ! "
             "video/x-raw(memory:NVMM), width=1280, height=720, framerate=60/1 ! "
             "nvvidconv flip-method=2 ! "
             "video/x-raw, width=640, height=480, format=BGRx ! "
