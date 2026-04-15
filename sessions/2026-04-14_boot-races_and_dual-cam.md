@@ -15,12 +15,13 @@ Three threads of work today, all on branch `auto-nav-test`:
 ## Branch state at session end
 ```
 (HEAD -> auto-nav-test)
-  ae27XXX  Jetson: harden boot-time races so GUI loads on first try   (committed)
-  ae27XXX  webrtc: fix async-with after awaited websockets.connect()   (committed)
+  82b33ee  Sessions: document 2026-04-14 boot-race + dual-cam work
+  6a27a8c  webrtc: fix async-with after awaited websockets.connect()
+  4f12e27  Jetson: harden boot-time races so GUI loads on first try
 (auto-nav)
-  ad168b7  Camera: switch nvarguscamerasrc to sensor-id=0              (committed)
+  ad168b7  Camera: switch nvarguscamerasrc to sensor-id=0
 (origin/auto-nav)
-  5015c15  Sensor bridge end-to-end + slow mode + RTH-stuck fix        (pulled from remote)
+  5015c15  Sensor bridge end-to-end + slow mode + RTH-stuck fix
 ```
 
 Uncommitted local diff at session end: `jetson/webrtc_sender.py` with `sensor-id=1` (vs committed `sensor-id=0`). Deliberately not committed — the dual-cam overlay + port-C ribbon hadn't been end-to-end verified when the session paused.
