@@ -12,6 +12,7 @@ import math
 
 pixhawk_lock = threading.Lock()
 mission_uploading = threading.Event()
+telemetry_ready = threading.Event()
 
 # =====================================================
 # CONFIG
@@ -31,13 +32,9 @@ MOTOR_SLEWRATE = 25
 WP_SPEED_MS = 1.5
 telemetry_clients = set()
 
-# ESP32
-try:
-    ser = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
-    print('[ESP32] Serial connected on /dev/ttyACM1')
-except serial.SerialException:
-    ser = None
-    print('[ESP32] /dev/ttyACM1 not found — sensor data unavailable')
+# ESP32 serial is opened inside read_esp32() with retry — don't open at
+# module scope, because if /dev/ttyACM1 isn't enumerated yet at boot we'd
+# be stuck with ser=None for the whole process lifetime and never recover.
 
 # Pixhawk
 pixhawk = mavutil.mavlink_connection('udp:0.0.0.0:14552')
@@ -300,11 +297,18 @@ def index():
 def read_esp32():
     global temp, sal, ph
 
-    if ser is None:
-        print('[ESP32] No serial connection — read_esp32 thread idle')
-        return
-
+    ser = None
     while True:
+        if ser is None:
+            try:
+                ser = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
+                print('[ESP32] Serial connected on /dev/ttyACM1')
+            except serial.SerialException:
+                # USB not enumerated yet or unplugged — wait and retry so
+                # sensor data recovers whenever the ESP32 comes (back) online.
+                time.sleep(10)
+                continue
+
         try:
             line = ser.readline().decode('utf-8', errors='ignore').strip()
             if line.startswith("TEMP:"):
@@ -319,6 +323,13 @@ def read_esp32():
                             sal = float(v)
                         elif k == "PH":
                             ph = float(v)
+        except (serial.SerialException, OSError) as e:
+            print(f"[ESP32] Serial error ({e}) — reconnecting")
+            try:
+                ser.close()
+            except Exception:
+                pass
+            ser = None
         except Exception as e:
             print("ESP32 error:", e)
 
@@ -553,6 +564,10 @@ async def start_telemetry():
     await websockets.serve(control_handler, "0.0.0.0", CONTROL_PORT)
     print(f"Telemetry running on {TELEMETRY_PORT}")
     print(f"Control running on {CONTROL_PORT}")
+    # Signal main thread that both sockets are bound. Without this,
+    # Flask can start serving index.html before the dashboard's WS
+    # endpoints exist — browser sees permanently-red indicators.
+    telemetry_ready.set()
     asyncio.create_task(telemetry_broadcast())
     await asyncio.Future()
 
@@ -566,4 +581,6 @@ if __name__ == "__main__":
     threading.Thread(target=run_async, daemon=True).start()
     threading.Thread(target=read_pixhawk, daemon=True).start()
     threading.Thread(target=read_esp32, daemon=True).start()
+    if not telemetry_ready.wait(timeout=10):
+        print("⚠️ Telemetry servers didn't signal ready in 10s — starting Flask anyway")
     app.run(host="0.0.0.0", port=5000)

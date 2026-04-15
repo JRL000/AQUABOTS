@@ -1,7 +1,7 @@
 [Unit]
 Description=WebRTC camera stream (Jetson → browser)
 After=network.target mavproxy.service signaling.service
-Wants=network.target
+Wants=network.target signaling.service
 
 [Service]
 ExecStart=/bin/bash -c 'exec /usr/bin/python3 -u /home/mayra/webrtc_jetson.py > /tmp/webrtc.log 2>&1'

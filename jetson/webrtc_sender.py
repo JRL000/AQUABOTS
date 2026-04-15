@@ -57,8 +57,16 @@ except Exception as e:
 try:
     mav = mavutil.mavlink_connection('/dev/ttyACM0', baud=57600)
     print("Waiting for Pixhawk heartbeat...")
-    mav.wait_heartbeat()
-    print("✅ Pixhawk connected")
+    # Bounded wait so this module import can't hang forever when the
+    # Pixhawk USB hasn't enumerated yet on boot. Telemetry fields will
+    # just be blank until mav is (re)opened — better than blocking
+    # webrtc startup and flapping under systemd Restart=.
+    hb = mav.wait_heartbeat(timeout=5)
+    if hb is None:
+        mav = None
+        print("⚠️ Pixhawk heartbeat timeout — continuing without Pixhawk telemetry")
+    else:
+        print("✅ Pixhawk connected")
 except Exception as e:
     mav = None
     print("⚠️ Pixhawk not found:", e)
@@ -90,7 +98,16 @@ class CameraVideoTrack(VideoStreamTrack):
             "appsink name=sink max-buffers=1 drop=true sync=false"
         )
         self._sink = self._pipeline.get_by_name('sink')
-        self._pipeline.set_state(Gst.State.PLAYING)
+        ret = self._pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            # Surface argus/sensor open failures instead of silently running
+            # a dead pipeline. Exiting lets systemd Restart=on-failure kick
+            # us again after nvargus-daemon or the sensor comes up.
+            self._pipeline.set_state(Gst.State.NULL)
+            raise RuntimeError(
+                "nvarguscamerasrc failed to start — check dmesg for imx219 "
+                "probe, ribbon seating, and nvargus-daemon status"
+            )
         print("[CAM] GStreamer pipeline started")
 
     def _pull_frame(self):
@@ -285,9 +302,21 @@ async def run():
 
     asyncio.create_task(telemetry_sender())
 
+    # Retry signaling connect with backoff. systemd After=signaling.service
+    # only guarantees the unit started, not that its socket is listening —
+    # without this loop, webrtc flaps at boot when it races ahead.
     print(f"Connecting to signaling: {SIGNALING_SERVER}")
+    backoff = 1
+    while True:
+        try:
+            ws = await websockets.connect(SIGNALING_SERVER)
+            break
+        except (OSError, ConnectionRefusedError) as e:
+            print(f"Signaling not ready ({e}); retry in {backoff}s")
+            await asyncio.sleep(backoff)
+            backoff = min(backoff * 2, 10)
 
-    async with websockets.connect(SIGNALING_SERVER) as ws:
+    async with ws:
         print("Connected to signaling server")
 
         pc = RTCPeerConnection()
