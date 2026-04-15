@@ -316,7 +316,7 @@ async def run():
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, 10)
 
-    async with ws:
+    try:
         print("Connected to signaling server")
 
         pc = RTCPeerConnection()
@@ -368,6 +368,8 @@ async def run():
                     is_recording = False
                     await ws.send(json.dumps({"recording": False}))
                     print("🛑 Recording OFF")
+    finally:
+        await ws.close()
 
 asyncio.run(run())
 
