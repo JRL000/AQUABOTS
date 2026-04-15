@@ -85,12 +85,18 @@ pixhawk_data = {
 # on JetPack 6.2 (dmabuf_fd = -1 issue)
 # ============================================
 
+# Physical carrier port CAM1 (working clamp) maps to argus sensor-id=0 under
+# the dual-IMX219 device-tree overlay. Silkscreen labels do NOT match argus
+# sensor-ids — the mapping is carrier-specific. Keep this pinned to the port
+# we actually route the ribbon to.
+CAM1_SENSOR_ID = 0
+
 class CameraVideoTrack(VideoStreamTrack):
     def __init__(self):
         super().__init__()
 
         self._pipeline = Gst.parse_launch(
-            "nvarguscamerasrc sensor-id=0 ! "
+            f"nvarguscamerasrc sensor-id={CAM1_SENSOR_ID} ! "
             "video/x-raw(memory:NVMM), width=1280, height=720, framerate=60/1 ! "
             "nvvidconv flip-method=2 ! "
             "video/x-raw, width=640, height=480, format=BGRx ! "
