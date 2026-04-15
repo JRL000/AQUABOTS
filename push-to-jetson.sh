@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-JETSON=mayra@100.76.1.26
+JETSON=jetson
 APP_DIR=/home/mayra/AquaBotGUI_WebRTC
 
 usage() {
