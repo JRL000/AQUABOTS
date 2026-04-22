@@ -1,0 +1,20 @@
+# Normalize line endings to LF in the repo; check out native on Windows.
+# Stops CRLF/LF churn from showing up as fake diffs across machines.
+* text=auto eol=lf
+
+# Treat known binary types as binary regardless of detection.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.zip binary
+*.tar binary
+*.gz binary
+*.dxf binary
+*.DXF binary
+*.stp binary
+*.STP binary
+*.bin binary
+*.elf binary

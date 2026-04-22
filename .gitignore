@@ -64,11 +64,12 @@ CLAUDE.md
 # Stale build directories
 firmwarebuild/
 
-# Desktop metadata
-Desktop.ini
-
 # Integration scratch space (not versioned)
 integration/
 
 # Notes (local only)
 notes/
+
+# SSH session logs and setup notes (contain internal infrastructure)
+ssh.txt
+jetson-ssh-setup.txt

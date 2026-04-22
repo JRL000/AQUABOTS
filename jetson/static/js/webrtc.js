@@ -234,12 +234,45 @@ let mapReady = false;
 function initializeMap(lat, lon) {
     if (mapReady) return;
 
-    map = L.map('map').setView([lat, lon], 17);
+    // Base layers — satellite is the default since we operate on water where
+    // street maps show nothing but a solid blue blob. Users can flip to the
+    // other base layers using the control in the top-right of the map.
+    const baseLayers = {
+        "Satellite": L.tileLayer(
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+            {
+                maxZoom: 19,
+                attribution: 'Tiles &copy; Esri — World Imagery'
+            }
+        ),
+        "Street (OSM)": L.tileLayer(
+            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+            { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }
+        ),
+        "Topographic": L.tileLayer(
+            'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+            { maxZoom: 17, attribution: 'Map data &copy; OpenTopoMap (CC-BY-SA)' }
+        ),
+    };
 
-    L.tileLayer(
-        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        { maxZoom: 19 }
-    ).addTo(map);
+    // Optional overlay: OpenSeaMap marine chart (buoys, depths, hazards).
+    // Transparent — rides on top of whichever base layer is active.
+    const overlays = {
+        "Nautical (OpenSeaMap)": L.tileLayer(
+            'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
+            { maxZoom: 18, attribution: '&copy; OpenSeaMap contributors' }
+        ),
+    };
+
+    map = L.map('map', { layers: [baseLayers["Satellite"]] }).setView([lat, lon], 17);
+    L.control.layers(baseLayers, overlays, { position: 'topright', collapsed: true }).addTo(map);
+
+    // Live mouse-position readout in the top-right of the map panel header.
+    // Useful when placing waypoints on a lake with no road reference.
+    map.on('mousemove', e => {
+        const el = document.getElementById('mapCoords');
+        if (el) el.textContent = `${e.latlng.lat.toFixed(6)}, ${e.latlng.lng.toFixed(6)}  @ z${map.getZoom()}`;
+    });
 
     const arrowIcon = L.divIcon({
         html: `<div id="droneArrow" style="
@@ -249,6 +282,7 @@ function initializeMap(lat, lon) {
             border-right:12px solid transparent;
             border-bottom:45px solid red;
             transform-origin:50% 75%;
+            filter: drop-shadow(0 0 4px rgba(0,0,0,0.8));
         "></div>`,
         className: '',
         iconSize: [40, 40]
@@ -414,7 +448,7 @@ function updateTelemetryUI(t) {
         drawSalOverlay(t);
     }
 
-    // 📊 Table update
+    // 📊 Rolling telemetry log (now on the Telemetry tab).
     const table = document.getElementById("telemetryTableBody");
 
     if (table) {
@@ -422,17 +456,21 @@ function updateTelemetryUI(t) {
 
         row.innerHTML = `
             <td>${t.TIME || "--"}</td>
-            <td>${t.LAT || "--"}</td>
-            <td>${t.LON || "--"}</td>
+            <td>${t.LAT  || "--"}</td>
+            <td>${t.LON  || "--"}</td>
+            <td>${t.HEAD !== undefined ? Number(t.HEAD).toFixed(1) + "°" : "--"}</td>
+            <td>${t.SPD  !== undefined ? Number(t.SPD).toFixed(2) : "--"}</td>
+            <td>${t.MODE || "--"}</td>
+            <td>${t.BAT_V !== undefined ? t.BAT_V : "--"}</td>
             <td>${t.TEMP || "--"}</td>
-            <td>${t.PH || "--"}</td>
-            <td>${t.SAL || "--"}</td>
+            <td>${t.SAL  || "--"}</td>
+            <td>${t.PH   || "--"}</td>
         `;
 
         table.prepend(row);
 
-        while (table.rows.length > 5) {
-            table.deleteRow(5);
+        while (table.rows.length > 10) {
+            table.deleteRow(10);
         }
     }
 }
