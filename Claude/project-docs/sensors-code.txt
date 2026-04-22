@@ -1,0 +1,91 @@
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#include <HardwareSerial.h>
+#include <math.h>
+
+// =======================
+// PIN DEFINITIONS
+// =======================
+#define ONE_WIRE_BUS 4
+#define TDS_PIN 1
+#define PH_RX 16
+#define PH_TX 17
+
+// =======================
+// OBJECTS
+// =======================
+OneWire oneWire(ONE_WIRE_BUS);
+DallasTemperature sensors(&oneWire);
+HardwareSerial phSerial(1);
+
+// =======================
+// VARIABLES
+// =======================
+float temperatureC = 0;
+float salinityPPT = 0;
+float phValue = 0;
+
+unsigned long lastSend = 0;
+
+// =======================
+void setup() {
+
+  Serial.begin(115200);
+  delay(1000);
+
+  sensors.begin();
+  phSerial.begin(9600, SERIAL_8N1, PH_RX, PH_TX);
+  phSerial.setTimeout(10);
+
+  lastSend = millis();
+}
+
+// =======================
+void loop() {
+
+  // ----- TEMPERATURE -----
+  sensors.requestTemperatures();
+  temperatureC = sensors.getTempCByIndex(0);
+  if (temperatureC < -100) temperatureC = 0;
+
+  // ----- SALINITY -----
+  int raw = analogRead(TDS_PIN);
+  float voltage = raw * (3.3 / 4095.0);
+  float realVoltage = voltage * 2.0;
+
+  float compensationCoefficient = 1.0 + 0.02 * (temperatureC - 25.0);
+  float compensationVoltage = realVoltage / compensationCoefficient;
+
+  float ec = (133.42 * pow(compensationVoltage, 3)
+             - 255.86 * pow(compensationVoltage, 2)
+             + 857.39 * compensationVoltage);
+
+  float tdsPPM = ec * 0.5;
+  salinityPPT = tdsPPM / 1000.0;
+  if (salinityPPT < 0) salinityPPT = 0;
+
+  // ----- pH -----
+  if (phSerial.available()) {
+    String phString = phSerial.readStringUntil('\n');
+    phString.trim();
+    float newPH = phString.toFloat();
+    if (newPH > 0 && newPH < 14) {
+      phValue = newPH;
+    }
+  }
+
+  // ----- SEND CLEAN CSV --,---
+  if (millis() - lastSend >= 3000) {
+
+    lastSend = millis();
+
+    Serial.print("TEMP:");
+    Serial.print(temperatureC, 2);
+    Serial.print(",SAL:");
+    Serial.print(salinityPPT, 3);
+    Serial.print(",PH:");
+    Serial.println(phValue, 2);
+  }
+}
+
+

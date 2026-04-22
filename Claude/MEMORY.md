@@ -1,3 +1,6 @@
+- [Session log — 2026-04-18 GUI expansion](session-logs/04-18-2026.md) — full narrative of the telemetry/safety/manual/mission-planner expansion; nothing verified on Jetson yet.
+- [GUI expansion summary](memory/project_gui_expansion_2026-04-18.md) — three-tab layout, safety layer, admin auth model, geofence + lawnmower, mock server — at a glance.
+- [Mock server reference](memory/reference_mock_server.md) — `jetson/tools/mock_server.py` + `ws_peek.py`; admin pw `demo`; template auto-reload gotcha.
 - [Session handoff from 2026-04-14](memory/session_handoff_2026-04-14.md) — READ FIRST on any fresh session: what the prior Claude shipped, what's unverified, and where full context lives.
 - [CSI camera clamp physically broken](memory/hardware_camera_clamp.md) — any `imx219 -121` probe failure is the broken FPC latch on port A; port C clamp is fine.
 - [Jetson dual-IMX219 device tree overlay](memory/jetson_camera_dt_overlay.md) — dual-cam overlay flashed 2026-04-14; sensor-id=0 → port A, sensor-id=1 → port C; backup + revert command noted.

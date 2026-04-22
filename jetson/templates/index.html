@@ -72,74 +72,83 @@
 <body>
 
 <div class="header">
-    <h1>AquaBot Dashboard</h1>
-    <p>Team 26061 | University of Arizona</p>
+    <div class="header-left">
+        <h1>AquaBot Dashboard</h1>
+        <p>Team 26061 | University of Arizona</p>
+    </div>
+
+    <!-- Always-on safety buttons (every tab). -->
+    <div class="header-actions">
+        <button id="btnEStop"    class="estop-btn"  title="Emergency stop: immediately disarms">E-STOP</button>
+        <button id="btnMute"     class="hdr-btn"    title="Mute/unmute audible alerts">&#128266;</button>
+        <button id="btnAdmin"    class="hdr-btn"    title="Admin login (unlocks Manual tab + pre-arm bypass)">&#128100;&nbsp;Admin</button>
+    </div>
+
+    <!-- Link-quality strip: three dots colored by age of last message on each link. -->
+    <div class="link-strip" id="linkStrip">
+        <span class="link-pill"><span class="link-dot" id="linkGcs"></span> GCS&#8644;Jetson <span class="link-age" id="linkGcsAge">--</span></span>
+        <span class="link-pill"><span class="link-dot" id="linkPx"></span>  Jetson&#8644;Pixhawk <span class="link-age" id="linkPxAge">--</span></span>
+        <span class="link-pill"><span class="link-dot" id="linkEsp"></span> Jetson&#8644;ESP32   <span class="link-age" id="linkEspAge">--</span></span>
+    </div>
 </div>
 
-<div class="container">
+<!-- Failsafe banner — full-width red strip shown when the server reports
+     FAILSAFE_TRIPPED. Hidden by default. -->
+<div id="failsafeBanner" class="failsafe-banner" style="display:none;">
+    <strong>LINK-LOSS FAILSAFE TRIPPED</strong>
+    <span id="failsafeBannerDetail"></span>
+</div>
 
-    <!-- MAP -->
-    <div class="panel-column">
-        <h2 class="panel-title">Geo Overlay</h2>
+<!-- Toast region — used for save-confirm messages and generic notifications. -->
+<div id="toastRegion" class="toast-region"></div>
+
+<!-- Shared media row — map + video, always visible regardless of tab so the
+     operator can see the vehicle and camera while using any panel. -->
+<div class="media-row">
+    <div class="media-col">
+        <div class="media-head">
+            <span class="media-title">Geo Overlay</span>
+            <span class="media-meta" id="mapCoords">--, --</span>
+        </div>
         <div class="panel geo-panel">
             <div id="map" style="height:100%; width:100%; border-radius:8px;"></div>
         </div>
     </div>
 
-    <!-- VIDEO -->
-    <div class="panel-column">
-        <h2 class="panel-title">Live Video Stream</h2>
-
+    <div class="media-col">
+        <div class="media-head">
+            <span class="media-title">Live Video Stream</span>
+            <span class="media-meta">latency <span id="videoLatency">--</span> ms</span>
+        </div>
         <div class="panel video-panel" style="position:relative;">
-            <video id="webrtcVideo"
-                   autoplay
-                   playsinline
-                   muted
-                   style="width:100%; height:100%; background:black; border-radius:8px;">
-            </video>
-
-            <div id="recordIndicator"
-                 style="position:absolute;
-                        top:10px;
-                        left:10px;
-                        background:red;
-                        padding:6px 12px;
-                        border-radius:6px;
-                        font-weight:bold;
-                        display:none;">
+            <video id="webrtcVideo" autoplay playsinline muted
+                   style="width:100%; height:100%; background:black; border-radius:8px;"></video>
+            <div id="recordIndicator" style="position:absolute; top:10px; left:10px;
+                 background:red; padding:6px 12px; border-radius:6px; font-weight:bold; display:none;">
                 ● REC
             </div>
         </div>
     </div>
-
 </div>
 
-<!-- ================= BOTTOM ROW ================= -->
+<!-- Tab bar -->
+<div class="tab-bar">
+    <button class="tab-btn active" data-tab="dashboard">Dashboard</button>
+    <button class="tab-btn"         data-tab="telemetry">Telemetry</button>
+    <button class="tab-btn"         data-tab="manual">Manual <span class="tab-lock">&#128274;</span></button>
+</div>
+
+<div class="tab-panel active" id="tab-dashboard">
+
+<!-- ============ DASHBOARD BOTTOM ROW ============
+     4 columns, no telemetry log (moved to Telemetry tab). Flex values tuned
+     so Camera Controls + Status stay compact and the two planning columns
+     have room to breathe. -->
 <div class="bottom-row">
 
-    <!-- TELEMETRY TABLE -->
-    <div class="sensor-data" style="flex:2;">
-        <h3>Telemetry Log (Last 5)</h3>
-        <table>
-            <thead>
-                <tr>
-                    <th>Time</th>
-                    <th>Lat</th>
-                    <th>Lon</th>
-                    <th>Temp (°C)</th>
-                    <th>pH</th>
-                    <th>Sal</th>
-                </tr>
-            </thead>
-            <tbody id="telemetryTableBody"></tbody>
-        </table>
-    </div>
-
-    <!-- MAP CONTROLS + OVERLAYS -->
-    <div class="buttons">
-
-        <h3>Controls</h3>
-
+    <!-- CAMERA CONTROLS + SENSOR OVERLAYS -->
+    <div class="buttons" style="flex:1.2;">
+        <h3>Camera Controls</h3>
         <div class="button-grid">
             <button id="zoomIn">Zoom In</button>
             <button id="zoomOut">Zoom Out</button>
@@ -148,98 +157,307 @@
         </div>
 
         <h3 style="margin-top:15px;">Sensor Overlays</h3>
-
         <div class="button-grid">
             <button id="toggleTemp">Temp</button>
             <button id="togglePH">pH</button>
             <button id="toggleSal">Salinity</button>
             <button id="clearOverlay">Clear</button>
         </div>
-
     </div>
 
-    <!-- STATUS + MOTOR + THROTTLE -->
-    <div class="video-stats">
-
-        <p>
-            <strong>Video Latency:</strong>
-            <span id="videoLatency">--</span> ms
-        </p>
-
-        <p>
-            <strong>Speed:</strong>
-            <span id="speedKnots">0.0</span> kn
-        </p>
-
-        <p>
-            <strong>GPS Fix:</strong>
-            <span id="gpsFix"
-                  style="display:inline-block;
-                         width:14px;
-                         height:14px;
-                         border-radius:50%;
-                         background:red;">
-            </span>
-        </p>
-
-        <p>
-            <strong>Recording:</strong>
-            <span id="recordStatus"
-                  style="display:inline-block;
-                         width:14px;
-                         height:14px;
-                         border-radius:50%;
-                         background:red;">
-            </span>
-        </p>
-
-        <p>
-            <strong>Mode:</strong>
-            <span id="currentMode" style="font-weight:600; color:#aaddff;">--</span>
-        </p>
+    <!-- STATUS + MOTOR SAFETY -->
+    <div class="video-stats" style="flex:1;">
+        <p><strong>Speed:</strong> <span id="speedKnots">0.0</span> kn</p>
+        <p><strong>GPS Fix:</strong> <span id="gpsFix" class="indicator-dot"></span></p>
+        <p><strong>Recording:</strong> <span id="recordStatus" class="indicator-dot"></span></p>
+        <p><strong>Mode:</strong> <span id="currentMode" style="font-weight:600; color:#aaddff;">--</span></p>
 
         <h3 style="margin-top:20px;">Motor Safety</h3>
-
         <button id="btnArmDisarm" style="width:100%;" onclick="toggleArmDisarm()">ARM</button>
-
-        <button id="btnSlowMode" style="width:100%; margin-top:6px;" onclick="toggleSlowMode()">SLOW MODE: OFF</button>
-
+        <button id="btnSlowMode"  style="width:100%; margin-top:6px;" onclick="toggleSlowMode()">SLOW MODE: OFF</button>
     </div>
 
-    <!-- MISSION CONTROL -->
-    <div class="buttons" style="flex:1; min-width:210px;">
+    <!-- MISSION CONTROL (pre-arm, phase, basic planning, dynamic actions) -->
+    <div class="buttons" style="flex:1.5; min-width:220px;">
+        <h3>Mission Control</h3>
 
-        <!-- Phase badge — updated by state machine in controls.js -->
+        <!-- Pre-arm checklist. Green = ready. START MISSION stays disabled
+             until all required rows are green (or admin bypass is enabled). -->
+        <div id="preArmCard" class="prearm-card">
+            <div class="prearm-title">
+                <span>Pre-Arm</span>
+                <span id="preArmSummary">--</span>
+            </div>
+            <ul class="prearm-list">
+                <li data-key="gcs">      <span class="pdot"></span> GCS link         <em data-detail></em></li>
+                <li data-key="pixhawk">  <span class="pdot"></span> Pixhawk link     <em data-detail></em></li>
+                <li data-key="gps">      <span class="pdot"></span> GPS 3D fix       <em data-detail></em></li>
+                <li data-key="home">     <span class="pdot"></span> HOME set         <em data-detail></em></li>
+                <li data-key="compass">  <span class="pdot"></span> EKF compass var  <em data-detail></em></li>
+                <li data-key="battery">  <span class="pdot"></span> Battery          <em data-detail></em></li>
+                <li data-key="waypoints"><span class="pdot"></span> Waypoints loaded <em data-detail></em></li>
+            </ul>
+            <label class="prearm-bypass" style="display:none;">
+                <input type="checkbox" id="preArmBypass"> Admin bypass (override pre-arm checks)
+            </label>
+        </div>
+
         <div id="missionPhaseBadge">
             <span id="missionPhaseLabel">IDLE</span>
             <div id="missionWPProgress"></div>
         </div>
 
-        <!-- Status / Pixhawk messages — hidden when empty -->
         <div id="missionStatus"></div>
 
-        <!-- Planning (always available) -->
         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:5px; margin-top:8px;">
             <button id="btnPlaceWaypoints" style="margin:0; font-size:11px; padding:7px 4px;">Place WPs</button>
             <button id="btnClearWaypoints" style="margin:0; font-size:11px; padding:7px 4px;">Clear</button>
             <button id="btnUploadMission"  style="margin:0; font-size:11px; padding:7px 4px;">Upload</button>
         </div>
 
-        <!-- Dynamic action buttons — shown/hidden by phase state machine -->
         <button id="btnStartMission"  class="mac-btn" style="display:none;">START MISSION</button>
         <button id="btnResumeMission" class="mac-btn" style="display:none;">RESUME</button>
         <button id="btnHoldMission"   class="mac-btn" style="display:none;">HOLD</button>
         <button id="btnRTH"           class="mac-btn" style="display:none;">RETURN HOME</button>
         <button id="btnAbortMission"  class="mac-btn" style="display:none;">ABORT (DISARM)</button>
+    </div>
 
+    <!-- ADVANCED PLANNING (geofence / survey / templates) — own column. -->
+    <div class="buttons advanced-column" style="flex:1.3;">
+        <h3>Advanced Planning</h3>
+
+        <div class="adv-section">
+            <div class="adv-label">Geofence</div>
+            <div class="adv-hint">A virtual boundary the boat isn't allowed to cross. Once uploaded and enabled, the Pixhawk auto-switches to HOLD if the vehicle drifts outside the polygon.</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <button id="btnFenceDraw"   class="adv-btn" title="Click the map to add fence vertices. Double-click the map to finish the polygon. You need at least 3 vertices.">Draw fence</button>
+                <button id="btnFenceClear"  class="adv-btn" title="Remove all fence vertices and the polygon preview from the map.">Clear</button>
+                <button id="btnFenceUpload" class="adv-btn" title="Send the drawn polygon to the Pixhawk. The return point is set to the current vehicle position.">Upload</button>
+                <button id="btnFenceToggle" class="adv-btn" title="Turn Pixhawk-side fence enforcement on or off. Upload the fence first.">Enable fence</button>
+            </div>
+        </div>
+
+        <div class="adv-section">
+            <div class="adv-label">Survey / lawnmower</div>
+            <div class="adv-hint">Define an area and auto-generate parallel back-and-forth waypoints that sweep the whole region. Good for coverage missions like water-quality sampling.</div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px;">
+                <button id="btnSurveyDraw" class="adv-btn" title="Click the map to add survey-area vertices. Double-click the map to finish the polygon.">Draw area</button>
+                <button id="btnSurveyGen"  class="adv-btn" title="Generate a lawnmower waypoint pattern that covers the drawn area, using the line spacing below. Replaces any existing waypoints.">Generate WPs</button>
+            </div>
+            <div class="adv-field" title="Distance between parallel sweep lines in meters. Smaller spacing = denser coverage and a longer mission.">
+                <span>Line spacing</span>
+                <input id="surveySpacing" type="number" min="2" max="50" step="1" value="8"> m
+            </div>
+        </div>
+
+        <div class="adv-section">
+            <div class="adv-label">Mission templates</div>
+            <select id="tmplList" class="adv-btn"><option value="">(no templates)</option></select>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:5px;">
+                <button id="btnTmplSave" class="adv-btn">Save current</button>
+                <button id="btnTmplLoad" class="adv-btn">Load</button>
+            </div>
+            <button id="btnTmplDelete" class="adv-btn" style="width:100%; margin-top:5px;">Delete selected</button>
+        </div>
     </div>
 
 </div>
 
+</div><!-- /tab-dashboard -->
+
+
+<!-- =================== TELEMETRY TAB =================== -->
+<!-- Read-only grid of Pixhawk + sensor fields. Populated from the same telemetry
+     stream the Dashboard uses (no extra websockets). -->
+<div class="tab-panel" id="tab-telemetry">
+    <div class="telemetry-wrap">
+
+        <div class="telemetry-actions">
+            <button id="btnDownloadTelemetry">Download Telemetry CSV</button>
+            <button id="btnClearTelemetryBuf">Clear Buffer</button>
+            <span id="telemetryBufCount" class="buf-count">0 rows buffered</span>
+        </div>
+
+        <div class="telemetry-grid">
+
+            <div class="tel-card">
+                <h4>Flight</h4>
+                <dl>
+                    <dt>Mode</dt>          <dd id="tMode">--</dd>
+                    <dt>Armed</dt>         <dd id="tArmed">--</dd>
+                    <dt>Heading</dt>       <dd id="tHead">--</dd>
+                    <dt>Ground speed</dt>  <dd id="tSpd">--</dd>
+                    <dt>Throttle %</dt>    <dd id="tThr">--</dd>
+                    <dt>Slow mode</dt>     <dd id="tSlow">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Mission</h4>
+                <dl>
+                    <dt>Current waypoint</dt> <dd id="tWP">--</dd>
+                    <dt>Waypoint total</dt>   <dd id="tWPTotal">--</dd>
+                    <dt>HOME set</dt>         <dd id="tHome">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Position</h4>
+                <dl>
+                    <dt>Latitude</dt>                 <dd id="tLat">--</dd>
+                    <dt>Longitude</dt>                <dd id="tLon">--</dd>
+                    <dt>GPS fix</dt>                  <dd id="tGpsFix">--</dd>
+                    <dt>Satellites</dt>               <dd id="tGpsSats">--</dd>
+                    <dt>Horizontal dilution (HDOP)</dt> <dd id="tGpsHdop">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Servos (PWM µs)</h4>
+                <dl>
+                    <dt>Servo 1 (steering)</dt> <dd id="tS1">--</dd>
+                    <dt>Servo 2</dt>            <dd id="tS2">--</dd>
+                    <dt>Servo 3 (throttle)</dt> <dd id="tS3">--</dd>
+                    <dt>Servo 4</dt>            <dd id="tS4">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Battery</h4>
+                <dl>
+                    <dt>Voltage</dt>       <dd id="tBatV">--</dd>
+                    <dt>Current</dt>       <dd id="tBatA">--</dd>
+                    <dt>Remaining</dt>     <dd id="tBatPct">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>EKF health</h4>
+                <dl>
+                    <dt>Compass variance</dt>  <dd id="tEkfCmp">--</dd>
+                    <dt>Position variance</dt> <dd id="tEkfPos">--</dd>
+                    <dt>Velocity variance</dt> <dd id="tEkfVel">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Link freshness</h4>
+                <dl>
+                    <dt>Heartbeat age</dt>      <dd id="tHBAge">--</dd>
+                    <dt>GPS message age</dt>    <dd id="tGpsAge">--</dd>
+                    <dt>ESP32 message age</dt>  <dd id="tEspAge">--</dd>
+                </dl>
+            </div>
+
+            <div class="tel-card">
+                <h4>Sensors</h4>
+                <dl>
+                    <dt>Temperature</dt>   <dd id="tTemp">--</dd>
+                    <dt>Salinity</dt>      <dd id="tSal">--</dd>
+                    <dt>pH</dt>            <dd id="tPh">--</dd>
+                </dl>
+            </div>
+
+        </div>
+
+        <div class="tel-last-status" id="tLastStatus"></div>
+
+        <!-- Rolling log of the last 10 telemetry samples (moved here from the
+             Dashboard so the Dashboard bottom row has room for planning). -->
+        <div class="tel-log">
+            <div class="tel-log-head">
+                <h4>Recent Samples</h4>
+                <span class="tel-log-hint">Rolling last 10 · one sample per second</span>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Latitude</th>
+                        <th>Longitude</th>
+                        <th>Heading</th>
+                        <th>Speed (m/s)</th>
+                        <th>Mode</th>
+                        <th>Battery (V)</th>
+                        <th>Temperature (°C)</th>
+                        <th>Salinity</th>
+                        <th>pH</th>
+                    </tr>
+                </thead>
+                <tbody id="telemetryTableBody"></tbody>
+            </table>
+        </div>
+    </div>
+</div><!-- /tab-telemetry -->
+
+
+<!-- =================== MANUAL TAB (Phase C1) =================== -->
+<!-- Admin-gated manual control. Virtual sliders always available; a physical
+     gamepad, if plugged into the GCS, is polled and its axes mirror the sliders. -->
+<div class="tab-panel" id="tab-manual">
+
+    <div class="manual-locked" id="manualLocked">
+        <div class="locked-card">
+            <h2>Manual Control</h2>
+            <p>Admin login required to access joystick and RC override features.</p>
+            <button id="btnManualLoginPrompt" class="primary-btn">Log in as admin</button>
+        </div>
+    </div>
+
+    <div class="manual-wrap" id="manualWrap" style="display:none;">
+        <div class="manual-banner">
+            WARNING — MANUAL OVERRIDE ACTIVE. Pixhawk will follow your inputs until you release.
+        </div>
+
+        <div class="manual-row">
+            <div class="manual-status-card">
+                <h4>Status</h4>
+                <dl>
+                    <dt>Mode</dt>        <dd id="mMode">--</dd>
+                    <dt>Armed</dt>       <dd id="mArmed">--</dd>
+                    <dt>Gamepad</dt>     <dd id="mGamepad">not detected</dd>
+                    <dt>Override</dt>    <dd id="mOverride">inactive</dd>
+                </dl>
+                <div class="manual-btn-row">
+                    <button id="btnManualMode">Switch to MANUAL</button>
+                    <button id="btnManualArm">ARM</button>
+                    <button id="btnManualDisarm">DISARM</button>
+                </div>
+                <div class="manual-btn-row">
+                    <button id="btnManualEngage" class="primary-btn">Engage override</button>
+                    <button id="btnManualRelease">Release</button>
+                </div>
+            </div>
+
+            <div class="manual-stick-card">
+                <h4>Steering (ch1)</h4>
+                <input id="mSteer" type="range" min="1100" max="1900" value="1500" step="1">
+                <div class="stick-readout">PWM <span id="mSteerVal">1500</span> µs</div>
+            </div>
+
+            <div class="manual-stick-card">
+                <h4>Throttle (ch3)</h4>
+                <input id="mThrot" type="range" min="1100" max="1900" value="1500" step="1" class="throttle-vert">
+                <div class="stick-readout">PWM <span id="mThrotVal">1500</span> µs</div>
+            </div>
+        </div>
+
+        <div class="manual-help">
+            <p><strong>Gamepad:</strong> connect any USB/Bluetooth controller to this machine and press any button — the browser will detect it. Left stick X = steering, right stick Y = throttle (inverted).</p>
+            <p><strong>Safety:</strong> release the override or leave this tab to stop sending RC overrides. Sliders spring back to center when released.</p>
+        </div>
+    </div>
+
+</div><!-- /tab-manual -->
 
 
 <script src="{{ url_for('static', filename='js/webrtc.js') }}"></script>
 <script src="{{ url_for('static', filename='js/controls.js') }}"></script>
+<script src="{{ url_for('static', filename='js/telemetry_tab.js') }}"></script>
+<script src="{{ url_for('static', filename='js/safety.js') }}"></script>
+<script src="{{ url_for('static', filename='js/manual_tab.js') }}"></script>
+<script src="{{ url_for('static', filename='js/recording.js') }}"></script>
+<script src="{{ url_for('static', filename='js/mission_planning.js') }}"></script>
 
 </body>
 </html>
