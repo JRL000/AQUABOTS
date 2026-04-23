@@ -1,7 +1,12 @@
-- [Session log — 2026-04-18 GUI expansion](session-logs/04-18-2026.md) — full narrative of the telemetry/safety/manual/mission-planner expansion; nothing verified on Jetson yet.
+- [Session log — 2026-04-23 Jetson deploy + branch merge](session-logs/04-23-2026.md) — READ FIRST: shipped 04-18 GUI to Jetson, added admin-pw + cleanup units, collapsed 3 branches to `main`, pinned swarm feature on new branch.
+- [PINNED: swarm formation + detach/rejoin feature](memory/project_swarm_formation_feature.md) — design-only task waiting on user; work continues on branch `swarm-formation`.
+- [User is sole developer](memory/user_sole_developer.md) — John is the only one pushing; no cross-team coordination needed for merges/pushes.
+- [AquaBot admin password storage](memory/reference_admin_password.md) — GUI admin pw lives in `~/.config/aquabot.env` on the Jetson (not in git), loaded via EnvironmentFile.
+- [Planned Jetson layout restructure](memory/project_jetson_layout_restructure.md) — backlog: migrate to git-based Jetson deploy; not a priority.
+- [Session log — 2026-04-18 GUI expansion](session-logs/04-18-2026.md) — full narrative of the telemetry/safety/manual/mission-planner expansion; verified on hardware 2026-04-23.
 - [GUI expansion summary](memory/project_gui_expansion_2026-04-18.md) — three-tab layout, safety layer, admin auth model, geofence + lawnmower, mock server — at a glance.
 - [Mock server reference](memory/reference_mock_server.md) — `jetson/tools/mock_server.py` + `ws_peek.py`; admin pw `demo`; template auto-reload gotcha.
-- [Session handoff from 2026-04-14](memory/session_handoff_2026-04-14.md) — READ FIRST on any fresh session: what the prior Claude shipped, what's unverified, and where full context lives.
+- [Session handoff from 2026-04-14](memory/session_handoff_2026-04-14.md) — older handoff, kept for context; camera/device-tree background.
 - [CSI camera clamp physically broken](memory/hardware_camera_clamp.md) — any `imx219 -121` probe failure is the broken FPC latch on port A; port C clamp is fine.
 - [Jetson dual-IMX219 device tree overlay](memory/jetson_camera_dt_overlay.md) — dual-cam overlay flashed 2026-04-14; sensor-id=0 → port A, sensor-id=1 → port C; backup + revert command noted.
 - [Jetson systemd user-service topology](memory/jetson_systemd_layout.md) — all four services are user-scope; code-level retries cover cross-scope ordering gaps.
