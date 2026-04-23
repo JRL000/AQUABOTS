@@ -4,6 +4,9 @@ After=network.target mavproxy.service
 Wants=network.target
 
 [Service]
+# Loads AQUABOT_ADMIN_PW from a non-git env file on the Jetson.
+# Leading `-` = service still starts if the file is missing (admin stays disabled).
+EnvironmentFile=-%h/.config/aquabot.env
 ExecStart=/home/mayra/AquaBotGUI_WebRTC/venv/bin/python3 /home/mayra/AquaBotGUI_WebRTC/app.py
 WorkingDirectory=/home/mayra/AquaBotGUI_WebRTC
 Restart=on-failure

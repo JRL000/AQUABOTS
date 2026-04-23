@@ -1,0 +1,7 @@
+[Unit]
+Description=AquaBot log cleanup — delete blackbox + telemetry logs older than 30 days
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/find /home/mayra/videos -maxdepth 1 -name "blackbox_*.jsonl" -mtime +30 -delete
+ExecStart=/usr/bin/find /home/mayra/videos -maxdepth 1 -name "telemetry_*.csv"  -mtime +30 -delete
