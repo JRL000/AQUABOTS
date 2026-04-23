@@ -1,0 +1,12 @@
+[Unit]
+Description=Run AquaBot log cleanup monthly
+
+[Timer]
+# First day of each month at 03:00 local time.
+OnCalendar=*-*-01 03:00:00
+# If the Jetson was off at the scheduled time, run once on next boot.
+Persistent=true
+Unit=aquabot-cleanup.service
+
+[Install]
+WantedBy=timers.target
