@@ -154,6 +154,15 @@ function fmtFix(fixType) {
     return { 0: 'no fix', 1: 'no fix', 2: '2D', 3: '3D', 4: 'DGPS', 5: 'RTK-float', 6: 'RTK-fixed' }[fixType] ?? String(fixType);
 }
 
+function fmtCoord(v) {
+    // Lat/lon shown with 6 decimal places (≈11 cm precision). Anything more
+    // is meaningless for a surface vehicle and overflows the card.
+    if (v === null || v === undefined || v === '') return '--';
+    const n = Number(v);
+    if (!isFinite(n)) return String(v);
+    return n.toFixed(6);
+}
+
 function classifyAge(ms, warn, stale) {
     if (ms === null || ms === undefined || ms < 0) return 'stale';
     if (ms > stale) return 'stale';
@@ -180,12 +189,34 @@ function renderTelemetryTab(t) {
     setText('tWPTotal', t.WP_TOTAL);
     setText('tHome',    t.HOME_SET ? 'yes' : 'no');
 
-    setText('tLat',     t.LAT);
-    setText('tLon',     t.LON);
+    // Position — clamp lat/lon to 6 decimals (~11 cm) so the digits don't
+    // overflow the card. Full float resolution is meaningless for a boat.
+    setText('tLat',     fmtCoord(t.LAT));
+    setText('tLon',     fmtCoord(t.LON));
     setText('tGpsFix',  fmtFix(t.GPS_FIX));
     setText('tGpsSats', t.GPS_SATS);
     setText('tGpsHdop', t.GPS_HDOP);
 
+    // Navigation (NAV_CONTROLLER_OUTPUT-derived).
+    setText('tNavDist',   t.NAV_WP_DIST_M !== undefined ? t.NAV_WP_DIST_M + ' m' : '--');
+    setText('tNavTgtBrg', t.NAV_TARGET_BEARING !== undefined ? Number(t.NAV_TARGET_BEARING).toFixed(1) + '°' : '--');
+    setText('tNavDesBrg', t.NAV_DESIRED_BEARING !== undefined ? Number(t.NAV_DESIRED_BEARING).toFixed(1) + '°' : '--');
+    setText('tNavXtrack', t.NAV_XTRACK_ERROR_M !== undefined ? Number(t.NAV_XTRACK_ERROR_M).toFixed(2) + ' m' : '--');
+    if (t.NAV_HEADING_ERROR !== undefined) {
+        const e = Number(t.NAV_HEADING_ERROR);
+        const arrow = e > 1 ? ' →' : e < -1 ? ' ←' : '';
+        setText('tNavHdgErr', e.toFixed(1) + '°' + arrow);
+    } else {
+        setText('tNavHdgErr', '--');
+    }
+
+    // Attitude
+    setText('tRoll',  t.ROLL  !== undefined ? Number(t.ROLL).toFixed(1)  + '°' : '--');
+    setText('tPitch', t.PITCH !== undefined ? Number(t.PITCH).toFixed(1) + '°' : '--');
+
+    // Actuators — show deflection percentage AND raw PWM
+    setText('tSteerPct', t.STEER_DEFLECTION_PCT    !== undefined ? Number(t.STEER_DEFLECTION_PCT).toFixed(1)    + ' %' : '--');
+    setText('tThrPct',   t.THROTTLE_DEFLECTION_PCT !== undefined ? Number(t.THROTTLE_DEFLECTION_PCT).toFixed(1) + ' %' : '--');
     setText('tS1', t.SERVO1);
     setText('tS2', t.SERVO2);
     setText('tS3', t.SERVO3);
