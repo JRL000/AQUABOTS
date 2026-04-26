@@ -47,8 +47,8 @@
 #include "obstacle_sense.h"
 #include "avoidance.h"
 #include "sensor_bridge.h"
-/* Uncomment to use real A02YYUW hardware sensor: */
-/* #include "a02yyuw.h" */
+#include "swarm_bridge.h"
+#include "a02yyuw.h"
 
 static const char *TAG = "MAIN";
 
@@ -86,6 +86,9 @@ static void on_leader_changed(uint16_t new_leader_id, bool is_self)
         ESP_LOGI(TAG, "*** NEW LEADER ELECTED ***");
         ESP_LOGI(TAG, "    Leader Node ID: %u", new_leader_id);
     }
+    swarm_bridge_notify_role(new_leader_id, is_self,
+                             formation_get_my_index(),
+                             membership_get_count() + 1);
 }
 
 static void on_schedule_updated(const tdma_slot_t *schedule, int num_slots)
@@ -117,6 +120,7 @@ static bool on_command_received(const swarm_command_t *command)
         ESP_LOGI(TAG, "    Heading: %ld°", (long)command->param3);
     }
 
+    swarm_bridge_notify_command(command);
     return true;
 }
 
@@ -139,6 +143,7 @@ static void on_formation_changed(const formation_config_t *config)
     ESP_LOGI(TAG, "    Spacing: %ld mm", (long)config->spacing_mm);
     ESP_LOGI(TAG, "    Center: (%ld, %ld) mm",
              (long)config->center_x_mm, (long)config->center_y_mm);
+    swarm_bridge_notify_formation(config);
 }
 
 static void on_position_assigned(const formation_position_t *position, int node_index)
@@ -149,6 +154,7 @@ static void on_position_assigned(const formation_position_t *position, int node_
     ESP_LOGI(TAG, "    Offset: (%ld, %ld) mm",
              (long)position->x_mm, (long)position->y_mm);
     ESP_LOGI(TAG, "    Heading offset: %d°", position->heading_deg);
+    swarm_bridge_notify_position(position, node_index);
 }
 
 // ============================================================================
@@ -431,6 +437,7 @@ void app_main(void)
     obstacle_sense_init();
     avoidance_init();
     sensor_bridge_init();
+    swarm_bridge_init();
 
     ESP_LOGI(TAG, "All modules initialised");
 
@@ -444,12 +451,13 @@ void app_main(void)
         return;
     }
 
-    /* --- Optional: register real A02YYUW sensor here --- *
-     * #include "a02yyuw.h"
-     * a02yyuw_init(0, UART_NUM_1, GPIO_NUM_17, -1, 0);
-     * obstacle_sense_register_driver(a02yyuw_scan_driver);
-     * obstacle_sense_configure(4500, 120);
-     * ---------------------------------------------------- */
+    /* Register the real A02YYUW ultrasonic sensor on UART1, RX=GPIO17,
+     * facing forward (mounting angle 0°). The hardware driver replaces
+     * the mock once registered; obstacle_sense_configure narrows the
+     * tracked window to the sensor's spec (4.5 m range, 120° FOV). */
+    a02yyuw_init(0, UART_NUM_1, GPIO_NUM_17, -1, 0);
+    obstacle_sense_register_driver(a02yyuw_scan_driver);
+    obstacle_sense_configure(4500, 120);
 
     /* Register event callbacks. */
     membership_register_joined_cb(on_member_joined);
@@ -474,6 +482,7 @@ void app_main(void)
     obstacle_sense_start();
     avoidance_start();
     sensor_bridge_start();
+    swarm_bridge_start();
 
     ESP_LOGI(TAG, "System running.");
     ESP_LOGI(TAG, "Console: help | info | members | leader | schedule |");

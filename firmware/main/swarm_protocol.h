@@ -23,15 +23,29 @@
 // ============================================================================
 
 typedef enum {
-    MSG_TYPE_PING      = 0,  // Demo ping
-    MSG_TYPE_ACK       = 1,  // Demo ack
-    MSG_TYPE_HELLO     = 2,  // Membership discovery
-    MSG_TYPE_BEACON    = 3,  // TDMA schedule
-    MSG_TYPE_COMMAND   = 4,  // Swarm command
-    MSG_TYPE_FORMATION = 5,  // Formation plan
-    MSG_TYPE_TELEMETRY = 6,  // Status updates
-    MSG_TYPE_OBSTACLE  = 7,  // Obstacle scan broadcast
+    MSG_TYPE_PING       = 0,  // Demo ping
+    MSG_TYPE_ACK        = 1,  // Demo ack
+    MSG_TYPE_HELLO      = 2,  // Membership discovery
+    MSG_TYPE_BEACON     = 3,  // TDMA schedule
+    MSG_TYPE_COMMAND    = 4,  // Swarm command
+    MSG_TYPE_FORMATION  = 5,  // Formation plan
+    MSG_TYPE_TELEMETRY  = 6,  // Status updates
+    MSG_TYPE_OBSTACLE   = 7,  // Obstacle scan broadcast
+    MSG_TYPE_GPS_ANCHOR = 8,  // Leader's GPS for formation center
 } msg_type_t;
+
+// ============================================================================
+// GPS ANCHOR PAYLOAD (leader -> swarm, formation center)
+// ============================================================================
+
+typedef struct __attribute__((packed)) {
+    int32_t  lat_e7;        // latitude * 1e7 (degrees)
+    int32_t  lon_e7;        // longitude * 1e7 (degrees)
+    int16_t  heading_cdeg;  // heading in centi-degrees (0..36000)
+    uint8_t  fix_type;      // 0=no fix, 2=2D, 3=3D, 4=DGPS, 5=RTK
+    uint8_t  reserved;
+    uint32_t leader_t_ms;   // leader's monotonic timestamp at TX
+} gps_anchor_payload_t;
 
 // ============================================================================
 // SWARM PACKET HEADER
