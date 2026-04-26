@@ -116,6 +116,9 @@ function connectTelemetry() {
         try {
             const data = JSON.parse(msg.data);
             updateTelemetryUI(data);
+            if (typeof window.handleSwarmTelemetry === 'function') {
+                window.handleSwarmTelemetry(data);
+            }
         } catch (e) {
             console.log("Telemetry parse error:", e);
         }
@@ -264,8 +267,12 @@ function initializeMap(lat, lon) {
         ),
     };
 
-    map = L.map('map', { layers: [baseLayers["Satellite"]] }).setView([lat, lon], 17);
-    L.control.layers(baseLayers, overlays, { position: 'topright', collapsed: true }).addTo(map);
+    map = L.map('map', {
+        layers: [baseLayers["Satellite"]],
+        zoomControl: false,           // no built-in +/- (mouse wheel still works)
+    }).setView([lat, lon], 17);
+    L.control.layers(baseLayers, overlays,
+                     { position: 'bottomright', collapsed: true }).addTo(map);
 
     // Live mouse-position readout in the top-right of the map panel header.
     // Useful when placing waypoints on a lake with no road reference.

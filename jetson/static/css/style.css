@@ -789,3 +789,209 @@ button:hover {
     font-size: 11px;
 }
 
+/* ============================= */
+/* SWARM OVERLAY                 */
+/* ============================= */
+.geo-panel { position: relative; }
+
+.swarm-panel {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    width: 240px;
+    background: rgba(15, 17, 23, 0.92);
+    border: 1px solid #2d3a4c;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 12px;
+    z-index: 500;
+    box-shadow: 0 4px 14px rgba(0,0,0,0.5);
+}
+.swarm-panel-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 10px;
+    border-bottom: 1px solid #2d3a4c;
+    font-weight: 600;
+    font-size: 13px;
+    background: #161b22;
+    border-radius: 8px 8px 0 0;
+}
+.swarm-panel-head button {
+    background: transparent;
+    border: none;
+    color: #9aa6b2;
+    font-size: 16px;
+    cursor: pointer;
+    padding: 0 4px;
+    margin: 0;
+    width: auto;
+}
+.swarm-panel-head button:hover { color: #fff; }
+.swarm-panel-body { padding: 8px 10px; }
+
+.swarm-row { margin: 8px 0; }
+.swarm-row label {
+    display: block;
+    font-size: 11px;
+    opacity: 0.75;
+    margin-bottom: 4px;
+}
+.swarm-pattern-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+}
+.swarm-pat-btn {
+    width: 100%;
+    margin: 0;
+    padding: 6px 4px;
+    font-size: 11px;
+    background: #1f2937;
+    border: 1px solid #2d3a4c;
+    color: #fff;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.swarm-pat-btn:hover { background: #2a3441; }
+.swarm-pat-btn.active {
+    background: #2e6f3a;
+    border-color: #4caf50;
+}
+
+.swarm-row input[type="range"] { width: 100%; }
+
+.swarm-status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 11px;
+}
+.swarm-badge {
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+}
+.swarm-badge-leader   { background: #ffd95a; color: #1a1300; }
+.swarm-badge-follower { background: #2e6f3a; color: #fff; }
+.swarm-badge-unknown  { background: #4a5564; color: #fff; }
+
+.swarm-bigbtn {
+    width: 100%;
+    margin: 0;
+    padding: 10px 8px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #2e6f3a;
+    color: #fff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+}
+.swarm-bigbtn:hover { background: #3b8c4b; }
+.swarm-bigbtn.on {
+    background: #d60000;
+}
+.swarm-bigbtn.on:hover { background: #ff1a1a; }
+
+.swarm-event {
+    font-size: 11px;
+    color: #9ad6ff;
+    min-height: 14px;
+    border-top: 1px solid #2d3a4c;
+    padding-top: 6px;
+}
+.swarm-mock-row select {
+    width: 100%;
+    background: #1f2937;
+    color: #fff;
+    border: 1px solid #2d3a4c;
+    border-radius: 4px;
+    padding: 4px;
+    font-size: 11px;
+}
+.swarm-mock-row label::before {
+    content: "[dev] ";
+    color: #ffd95a;
+    font-weight: 600;
+}
+
+.swarm-strip {
+    position: absolute;
+    bottom: 8px;
+    left: 10px;
+    right: 10px;
+    z-index: 500;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    pointer-events: none;
+}
+.swarm-strip-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(15, 17, 23, 0.9);
+    border: 1px solid #2d3a4c;
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 11px;
+}
+.swarm-strip-name { font-weight: 600; }
+.swarm-strip-role {
+    font-size: 10px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    letter-spacing: 0.5px;
+}
+.swarm-strip-dist { font-family: monospace; opacity: 0.85; }
+.swarm-on-station { border-color: #4caf50; }
+.swarm-link-bad   { border-color: #d60000; color: #ff8a8a; }
+.swarm-stopped {
+    background: #d60000;
+    color: #fff;
+    border-color: #ff5555;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* ============================= */
+/* FULL-SCREEN BUTTONS           */
+/* ============================= */
+/* Sits inside .media-head, so it lives in the title bar above the map /
+   video — never fights with leaflet's own controls. */
+.fs-btn {
+    width: 28px;
+    height: 22px;
+    margin: 0 0 0 10px;
+    padding: 0;
+    background: transparent;
+    color: #9aa6b2;
+    border: 1px solid #2d3a4c;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+    line-height: 18px;
+    text-align: center;
+    flex-shrink: 0;
+}
+.fs-btn:hover { background: #1f2937; color: #fff; }
+.media-head { display: flex; align-items: center; }
+.media-head .media-meta { flex: 1; text-align: right; }
+
+.aqua-fullscreen {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9000 !important;
+    border-radius: 0 !important;
+    border: none !important;
+}
+.aqua-fullscreen-active { overflow: hidden; }
+

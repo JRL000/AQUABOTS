@@ -12,6 +12,7 @@ idf_component_register(
         "a02yyuw.c"
         "avoidance.c"
         "sensor_bridge.c"
+        "swarm_bridge.c"
     INCLUDE_DIRS
         "."
 )

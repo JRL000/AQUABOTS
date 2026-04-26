@@ -3,6 +3,9 @@ import hashlib
 import hmac
 import os
 import secrets
+import socket
+import subprocess
+import sys
 import threading
 import time
 import websockets
@@ -13,6 +16,9 @@ from datetime import datetime
 import pytz
 from pymavlink import mavutil
 import math
+
+import swarm_protocol
+from swarm_coordinator import SwarmCoordinator
 
 pixhawk_lock = threading.Lock()
 mission_uploading = threading.Event()
@@ -218,6 +224,28 @@ def start_mission():
     print("MISSION_START command sent")
     return True, "Mission started: ARM + AUTO + MISSION_START"
 
+# Local copy of the active fence — the Pixhawk owns the source of truth, but
+# we keep the polygon here so the swarm coordinator can refuse waypoints that
+# would land outside it (catching them earlier than the Pixhawk's own check).
+_fence_polygon_latlon = []
+_fence_enabled = False
+
+
+def _point_in_polygon(lat, lon, polygon):
+    """Even-odd ray-cast point-in-polygon test. polygon: list of [lat, lon]."""
+    n = len(polygon)
+    inside = False
+    j = n - 1
+    for i in range(n):
+        yi, xi = polygon[i]
+        yj, xj = polygon[j]
+        if ((yi > lat) != (yj > lat)) and \
+           (lon < (xj - xi) * (lat - yi) / (yj - yi + 1e-12) + xi):
+            inside = not inside
+        j = i
+    return inside
+
+
 def upload_fence_sync(polygon_latlon, return_lat, return_lon, action="HOLD"):
     """
     Upload a polygonal inclusion fence to the Pixhawk using the legacy
@@ -267,17 +295,71 @@ def upload_fence_sync(polygon_latlon, return_lat, return_lon, action="HOLD"):
             pixhawk.mav.param_set_send(ts, tc, b'FENCE_ENABLE', 1,
                                         mavutil.mavlink.MAV_PARAM_TYPE_INT32)
 
+        global _fence_polygon_latlon, _fence_enabled
+        _fence_polygon_latlon = list(polygon_latlon)
+        _fence_enabled = True
         return True, f"Fence uploaded: {n} vertices, action={action}"
     except Exception as e:
         return False, f"Fence upload error: {e}"
 
 
 def set_fence_enable(enabled):
+    global _fence_enabled
+    _fence_enabled = bool(enabled)
     val = 1 if enabled else 0
     with pixhawk_lock:
         pixhawk.mav.param_set_send(pixhawk.target_system, pixhawk.target_component,
                                     b'FENCE_ENABLE', val,
                                     mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+
+
+def upload_swarm_waypoint(target_lat, target_lon, target_heading_deg):
+    """
+    Push a single GUIDED-mode position target to the Pixhawk. Used by the
+    swarm coordinator each time a follower's assigned slot moves.
+    Does NOT touch the loaded mission. Returns True on success.
+    """
+    try:
+        with pixhawk_lock:
+            ts = pixhawk.target_system
+            tc = pixhawk.target_component
+            # type_mask: ignore velocity, accel, force, yaw_rate. Use position + yaw.
+            # Bit positions: 1=px,2=py,4=pz, 8=vx,16=vy,32=vz, 64=ax,128=ay,256=az,
+            # 512=force, 1024=yaw, 2048=yaw_rate.
+            ignore_mask = (8 | 16 | 32 | 64 | 128 | 256 | 512 | 2048)
+            pixhawk.mav.set_position_target_global_int_send(
+                0,                                                  # time_boot_ms
+                ts, tc,
+                mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                ignore_mask,
+                int(target_lat * 1e7),
+                int(target_lon * 1e7),
+                0.0,                                                # alt (boat)
+                0, 0, 0, 0, 0, 0,                                   # vel + accel ignored
+                math.radians(target_heading_deg),                   # yaw
+                0,                                                  # yaw_rate ignored
+            )
+        return True
+    except Exception as e:
+        print(f"[SWARM] waypoint upload error: {e}")
+        return False
+
+
+def swarm_geofence_check(lat, lon):
+    """Refuse swarm waypoint if the active fence is enabled and the target
+    falls outside its polygon. If no fence is set, all points are accepted."""
+    if not _fence_enabled or not _fence_polygon_latlon:
+        return True
+    return _point_in_polygon(lat, lon, _fence_polygon_latlon)
+
+
+# Coordinator instance — populated by main(), referenced by read_esp32() and
+# by the control_handler for swarm_enable / swarm_set_pattern.
+swarm = SwarmCoordinator(
+    upload_waypoint=upload_swarm_waypoint,
+    set_mode=lambda m: set_mode(m),
+    geofence_check=swarm_geofence_check,
+)
 
 
 def upload_mission_sync(waypoints_latlon):
@@ -489,43 +571,104 @@ def gcs_watchdog():
             print("[FAILSAFE] watchdog error:", e)
 
 
+class _TcpLink:
+    """Duck-types serial.Serial enough for read_esp32's needs."""
+    def __init__(self, host, port):
+        self._sock = socket.create_connection((host, port), timeout=10)
+        self._sock.settimeout(1.0)
+        self._rfile = self._sock.makefile('rb')
+    def readline(self):
+        try:
+            return self._rfile.readline()
+        except socket.timeout:
+            return b""
+    def write(self, data):
+        self._sock.sendall(data)
+    def close(self):
+        try: self._rfile.close()
+        except Exception: pass
+        try: self._sock.close()
+        except Exception: pass
+
+
+def _open_esp32_link():
+    """
+    Open the link to the on-board ESP32. Real hardware uses /dev/ttyACM1.
+    For mock/dev testing, set AQUABOT_ESP32_TCP=host:port and a swarm_mock.py
+    server gets used instead. Retries forever; never raises.
+    """
+    tcp_addr = os.environ.get("AQUABOT_ESP32_TCP")
+    if tcp_addr:
+        host, _, port_s = tcp_addr.partition(":")
+        port = int(port_s) if port_s else 7790
+        while True:
+            try:
+                link = _TcpLink(host, port)
+                print(f"[ESP32] TCP mock connected on {host}:{port}")
+                return link
+            except (ConnectionRefusedError, socket.timeout, OSError) as e:
+                print(f"[ESP32] TCP mock not up yet ({e}); retrying in 3s")
+                time.sleep(3)
+    while True:
+        try:
+            link = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
+            print('[ESP32] Serial connected on /dev/ttyACM1')
+            return link
+        except serial.SerialException:
+            time.sleep(10)
+
+
 def read_esp32():
+    """
+    Reader thread for the on-board ESP32 link. Handles TWO line families:
+      - legacy "TEMP:..." sensor lines -> updates global temp/sal/ph
+      - swarm-bridge tagged lines      -> forwarded to swarm_coordinator
+    Also drains the coordinator's outbound queue and writes those lines back.
+    """
     global temp, sal, ph, last_esp32_ts
 
-    ser = None
+    link = None
     while True:
-        if ser is None:
-            try:
-                ser = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
-                print('[ESP32] Serial connected on /dev/ttyACM1')
-            except serial.SerialException:
-                # USB not enumerated yet or unplugged — wait and retry so
-                # sensor data recovers whenever the ESP32 comes (back) online.
-                time.sleep(10)
-                continue
+        if link is None:
+            link = _open_esp32_link()
 
         try:
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            if line.startswith("TEMP:"):
-                print("ESP32:", line)
-                parts = line.split(',')
-                for p in parts:
-                    if ':' in p:
-                        k, v = p.split(':')
-                        if k == "TEMP":
-                            temp = float(v)
-                        elif k == "SAL":
-                            sal = float(v)
-                        elif k == "PH":
-                            ph = float(v)
-                last_esp32_ts = time.time()
-        except (serial.SerialException, OSError) as e:
-            print(f"[ESP32] Serial error ({e}) — reconnecting")
-            try:
-                ser.close()
-            except Exception:
-                pass
-            ser = None
+            raw = link.readline()
+            if raw:
+                line = raw.decode('utf-8', errors='ignore').strip()
+                if line.startswith("TEMP:"):
+                    print("ESP32:", line)
+                    parts = line.split(',')
+                    for p in parts:
+                        if ':' in p:
+                            k, v = p.split(':')
+                            if k == "TEMP":   temp = float(v)
+                            elif k == "SAL":  sal = float(v)
+                            elif k == "PH":   ph = float(v)
+                    last_esp32_ts = time.time()
+                elif line:
+                    # Anything else: try the swarm-bridge dispatcher.
+                    swarm.feed_serial_line(line)
+                    last_esp32_ts = time.time()
+
+            # Drain outbound queue (ANCHOR_GPS / SET_FORMATION / SWARM_ENABLE)
+            for _ in range(8):  # batch; don't starve the read side
+                outline = swarm.get_outbound_line(timeout=0.0)
+                if outline is None:
+                    break
+                try:
+                    link.write(outline.encode('utf-8'))
+                except Exception as e:
+                    print(f"[ESP32] write error ({e}) — reconnecting")
+                    try: link.close()
+                    except Exception: pass
+                    link = None
+                    break
+        except (serial.SerialException, OSError, socket.error) as e:
+            print(f"[ESP32] link error ({e}) — reconnecting")
+            try: link.close()
+            except Exception: pass
+            link = None
         except Exception as e:
             print("ESP32 error:", e)
 
@@ -586,6 +729,9 @@ def read_pixhawk():
             if msg_type == "GLOBAL_POSITION_INT":
                 lat = msg.lat / 1e7
                 lon = msg.lon / 1e7
+                # Feed the swarm coordinator so the leader can broadcast
+                # this boat's GPS, and the follower paths know we have a fix.
+                swarm.feed_pixhawk_gps(lat, lon, heading, gps_fix_type, int(time.time()))
             elif msg_type == "ATTITUDE":
                 heading = (math.degrees(msg.yaw) + 360) % 360
             elif msg_type == "VFR_HUD":
@@ -854,6 +1000,61 @@ async def control_handler(websocket):
                     }))
                     continue
 
+                elif action == "swarm_enable":
+                    if not admin_check(data.get("token")):
+                        await websocket.send(json.dumps({"status": "error", "message": "admin required"}))
+                        continue
+                    on = bool(data.get("on", False))
+                    # Mock-mode skips the Pixhawk pre-arm gates so the dev
+                    # box can drive the GUI end-to-end without a flight
+                    # controller attached.
+                    mock_mode = bool(os.environ.get("AQUABOT_ESP32_TCP"))
+                    if on and not mock_mode:
+                        if gps_fix_type < 3:
+                            await websocket.send(json.dumps({
+                                "status": "error",
+                                "message": "Swarm mode refused: GPS needs 3D fix",
+                            }))
+                            continue
+                        if not home_set:
+                            await websocket.send(json.dumps({
+                                "status": "error",
+                                "message": "Swarm mode refused: HOME not set",
+                            }))
+                            continue
+                    swarm.set_enabled(on)
+                    await websocket.send(json.dumps({
+                        "status": "ok",
+                        "message": f"Swarm mode {'ON' if on else 'OFF'}",
+                    }))
+                    continue
+
+                elif action == "mock_set_scenario":
+                    if not admin_check(data.get("token")):
+                        await websocket.send(json.dumps({"status": "error", "message": "admin required"}))
+                        continue
+                    scenario = (data.get("scenario") or "").strip()
+                    ok = _spawn_mock_subprocess(scenario)
+                    await websocket.send(json.dumps({
+                        "status": "ok" if ok else "error",
+                        "message": (f"Mock scenario set to {scenario}" if ok
+                                    else f"Unknown scenario {scenario}"),
+                    }))
+                    continue
+
+                elif action == "swarm_set_pattern":
+                    if not admin_check(data.get("token")):
+                        await websocket.send(json.dumps({"status": "error", "message": "admin required"}))
+                        continue
+                    pattern = (data.get("pattern") or "none").lower()
+                    spacing = int(data.get("spacing_mm", 2000))
+                    swarm.set_pattern(pattern, spacing)
+                    await websocket.send(json.dumps({
+                        "status": "ok",
+                        "message": f"Pattern: {pattern} spacing={spacing}mm",
+                    }))
+                    continue
+
                 elif action == "manual_release":
                     # Drop all RC overrides so Pixhawk's autonomous or RC inputs take back over.
                     if not admin_check(data.get("token")):
@@ -950,6 +1151,10 @@ async def telemetry_broadcast():
             "WATCHDOG_TIMEOUT": GCS_WATCHDOG_TIMEOUT,
             "WATCHDOG_ACTION": GCS_WATCHDOG_ACTION,
             "FAILSAFE_TRIPPED": failsafe_tripped,
+            "SWARM": swarm.snapshot(),
+            "MOCK_MODE": bool(os.environ.get("AQUABOT_ESP32_TCP")),
+            "MOCK_SCENARIO": _mock_scenario,
+            "MOCK_SCENARIOS": list(_mock_available_scenarios),
         }
         last_statustext = ""
         message = json.dumps(data)
@@ -990,9 +1195,76 @@ def run_async():
 # =====================================================
 # MAIN
 # =====================================================
+_mock_proc = None
+_mock_scenario = os.environ.get("AQUABOT_MOCK_SCENARIO", "follower_3boat")
+_mock_lock = threading.Lock()
+_mock_available_scenarios = (
+    "follower_3boat", "leader_3boat", "leader_silence_test", "stop_test"
+)
+
+
+def _spawn_mock_subprocess(scenario):
+    """Start (or restart) the mock ESP32 subprocess with the given scenario.
+    Idempotent: kills any existing one first. Returns True on success."""
+    global _mock_proc, _mock_scenario
+    if scenario not in _mock_available_scenarios:
+        return False
+    with _mock_lock:
+        if _mock_proc is not None:
+            try:
+                _mock_proc.terminate()
+                _mock_proc.wait(timeout=3)
+            except Exception:
+                try: _mock_proc.kill()
+                except Exception: pass
+            _mock_proc = None
+        try:
+            _mock_proc = subprocess.Popen(
+                [sys.executable, "-u", "tools/swarm_mock.py", "--scenario", scenario],
+                stdout=sys.stdout, stderr=sys.stderr,
+            )
+            _mock_scenario = scenario
+            print(f"[MOCK] spawned scenario={scenario} pid={_mock_proc.pid}")
+            return True
+        except Exception as e:
+            print(f"[MOCK] spawn error: {e}")
+            return False
+
+
+def _mock_pixhawk_feeder():
+    """Dev-only thread: when AQUABOT_ESP32_TCP is set we typically don't have
+    a real Pixhawk on UDP 14552. Pretend the boat is parked ~5m east of the
+    swarm_mock reference point with a 3D fix so the boat icon sits visibly
+    APART from the leader crown on the map."""
+    global lat, lon, heading, gps_fix_type, gps_sats, home_set, last_heartbeat_ts, last_gps_ts, mode, armed
+    # Reference is the swarm_mock leader (33.42746, -111.93584). Park the
+    # local boat ~5m east of that so the markers don't overlap.
+    lat = 33.42746
+    lon = -111.93584 + (5.0 / (111111.0 * math.cos(math.radians(33.42746))))
+    heading = 270.0  # face west (toward the leader) so the arrow visually points at them
+    gps_fix_type = 3
+    gps_sats = 12
+    home_set = True
+    mode = "GUIDED"
+    armed = True
+    while True:
+        last_heartbeat_ts = time.time()
+        last_gps_ts = time.time()
+        swarm.feed_pixhawk_gps(lat, lon, heading, gps_fix_type, int(time.time()))
+        time.sleep(1.0)
+
+
 if __name__ == "__main__":
+    swarm.start()
     threading.Thread(target=run_async, daemon=True).start()
-    threading.Thread(target=read_pixhawk, daemon=True).start()
+    if os.environ.get("AQUABOT_ESP32_TCP"):
+        print("[MOCK] AQUABOT_ESP32_TCP set — using fake Pixhawk feed")
+        threading.Thread(target=_mock_pixhawk_feeder, daemon=True).start()
+        # Also spawn the mock ESP32 subprocess so the user doesn't have to
+        # run a second terminal. Default scenario can be changed from the GUI.
+        _spawn_mock_subprocess(_mock_scenario)
+    else:
+        threading.Thread(target=read_pixhawk, daemon=True).start()
     threading.Thread(target=read_esp32, daemon=True).start()
     threading.Thread(target=gcs_watchdog, daemon=True).start()
     if not telemetry_ready.wait(timeout=10):
