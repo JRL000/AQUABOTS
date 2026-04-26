@@ -342,9 +342,10 @@ function toggleArmDisarm() {
 function updateArmButton(armed) {
     const btn = document.getElementById('btnArmDisarm');
     if (!btn) return;
-    lastArmedState            = armed;
-    btn.textContent           = armed ? 'DISARM' : 'ARM';
-    btn.style.backgroundColor = armed ? '#006600' : '';
+    lastArmedState  = armed;
+    btn.textContent = armed ? 'DISARM' : 'ARM';
+    btn.classList.toggle('armed', armed);
+    btn.style.backgroundColor = '';  // let CSS take over
 }
 
 // =====================
@@ -363,9 +364,10 @@ function toggleSlowMode() {
 function updateSlowModeButton(enabled) {
     const btn = document.getElementById('btnSlowMode');
     if (!btn) return;
-    slowModeState            = enabled;
-    btn.textContent          = enabled ? 'SLOW MODE: ON (30%)' : 'SLOW MODE: OFF';
-    btn.style.backgroundColor = enabled ? '#665500' : '';
+    slowModeState   = enabled;
+    btn.textContent = enabled ? 'SLOW MODE: ON (30%)' : 'SLOW MODE: OFF';
+    btn.classList.toggle('on', enabled);
+    btn.style.backgroundColor = '';
 }
 
 // =====================

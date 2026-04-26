@@ -492,6 +492,17 @@ ekf_compass_variance = 0.0
 ekf_pos_variance = 0.0
 ekf_velocity_variance = 0.0
 
+# Attitude (populated from ATTITUDE). Useful for spotting wave/wind push.
+roll_deg = 0.0
+pitch_deg = 0.0
+
+# Navigation telemetry (populated from NAV_CONTROLLER_OUTPUT). These are what
+# the autopilot is computing while it's trying to reach the active waypoint.
+nav_target_bearing = 0.0   # absolute bearing to active WP (deg from north)
+nav_desired_bearing = 0.0  # desired course Pixhawk wants to fly
+nav_wp_dist_m = 0          # distance to active WP (meters)
+nav_xtrack_error_m = 0.0   # cross-track error: signed perp distance from intended track
+
 # Link freshness — wall-clock seconds since epoch of the most recent message.
 # Used for age-based link-quality indicators in the GUI.
 last_heartbeat_ts = 0.0
@@ -523,7 +534,10 @@ app = Flask(__name__)
 
 @app.route("/")
 def index():
-    return render_template("index.html")
+    # MAPBOX_TOKEN — optional. If set in env, the dashboard exposes Mapbox
+    # Satellite + Outdoors layers (max zoom 22, much sharper than Esri).
+    return render_template("index.html",
+                           mapbox_token=os.environ.get("MAPBOX_TOKEN", ""))
 
 # =====================================================
 # ESP32 THREAD
@@ -572,21 +586,33 @@ def gcs_watchdog():
 
 
 class _TcpLink:
-    """Duck-types serial.Serial enough for read_esp32's needs."""
+    """Duck-types serial.Serial enough for read_esp32's needs.
+
+    Uses raw recv() with manual line buffering instead of makefile('rb').
+    Why: when the buffered file object's underlying socket times out, the
+    file object enters a permanently-poisoned state and any further read
+    raises 'cannot read from timed out object' as a plain OSError —
+    indistinguishable from a real disconnect. With raw recv we can
+    distinguish: socket.timeout = transient (return empty), 0 bytes or
+    other OSError = real disconnect (raise)."""
     def __init__(self, host, port):
         self._sock = socket.create_connection((host, port), timeout=10)
         self._sock.settimeout(1.0)
-        self._rfile = self._sock.makefile('rb')
+        self._buf = b""
     def readline(self):
-        try:
-            return self._rfile.readline()
-        except socket.timeout:
-            return b""
+        while b"\n" not in self._buf:
+            try:
+                chunk = self._sock.recv(4096)
+            except (socket.timeout, TimeoutError):
+                return b""
+            if not chunk:
+                raise OSError("connection closed by peer")
+            self._buf += chunk
+        line, _, self._buf = self._buf.partition(b"\n")
+        return line + b"\n"
     def write(self, data):
         self._sock.sendall(data)
     def close(self):
-        try: self._rfile.close()
-        except Exception: pass
         try: self._sock.close()
         except Exception: pass
 
@@ -682,6 +708,8 @@ def read_pixhawk():
     global battery_voltage, battery_current, battery_remaining
     global gps_fix_type, gps_sats, gps_hdop
     global ekf_compass_variance, ekf_pos_variance, ekf_velocity_variance
+    global roll_deg, pitch_deg
+    global nav_target_bearing, nav_desired_bearing, nav_wp_dist_m, nav_xtrack_error_m
     global last_heartbeat_ts, last_gps_ts
 
     print("Pixhawk: waiting for heartbeat...")
@@ -734,6 +762,13 @@ def read_pixhawk():
                 swarm.feed_pixhawk_gps(lat, lon, heading, gps_fix_type, int(time.time()))
             elif msg_type == "ATTITUDE":
                 heading = (math.degrees(msg.yaw) + 360) % 360
+                roll_deg = math.degrees(msg.roll)
+                pitch_deg = math.degrees(msg.pitch)
+            elif msg_type == "NAV_CONTROLLER_OUTPUT":
+                nav_target_bearing  = msg.target_bearing
+                nav_desired_bearing = msg.nav_bearing
+                nav_wp_dist_m       = msg.wp_dist
+                nav_xtrack_error_m  = msg.xtrack_error
             elif msg_type == "VFR_HUD":
                 speed = msg.groundspeed
                 throttle_pct = msg.throttle  # -100..100 (sign = direction on rovers)
@@ -1034,7 +1069,7 @@ async def control_handler(websocket):
                         await websocket.send(json.dumps({"status": "error", "message": "admin required"}))
                         continue
                     scenario = (data.get("scenario") or "").strip()
-                    ok = _spawn_mock_subprocess(scenario)
+                    ok = _spawn_mock_subprocess(scenario=scenario)
                     await websocket.send(json.dumps({
                         "status": "ok" if ok else "error",
                         "message": (f"Mock scenario set to {scenario}" if ok
@@ -1042,16 +1077,29 @@ async def control_handler(websocket):
                     }))
                     continue
 
-                elif action == "swarm_set_pattern":
+                elif action == "mock_set_members":
                     if not admin_check(data.get("token")):
                         await websocket.send(json.dumps({"status": "error", "message": "admin required"}))
                         continue
+                    n = int(data.get("members", 3))
+                    ok = _spawn_mock_subprocess(members=n)
+                    await websocket.send(json.dumps({
+                        "status": "ok" if ok else "error",
+                        "message": (f"Simulating {_mock_members}-boat swarm" if ok
+                                    else "Failed to set swarm size"),
+                    }))
+                    continue
+
+                elif action == "swarm_set_pattern":
+                    # Pattern + spacing are configuration, not motion.
+                    # No admin needed — anyone can rearrange the formation
+                    # before the leader actually arms swarm mode.
                     pattern = (data.get("pattern") or "none").lower()
                     spacing = int(data.get("spacing_mm", 2000))
                     swarm.set_pattern(pattern, spacing)
                     await websocket.send(json.dumps({
                         "status": "ok",
-                        "message": f"Pattern: {pattern} spacing={spacing}mm",
+                        "message": f"Pattern: {pattern}, spacing {spacing/1000:.1f} m",
                     }))
                     continue
 
@@ -1144,6 +1192,22 @@ async def telemetry_broadcast():
             "EKF_COMPASS_VAR": round(ekf_compass_variance, 3),
             "EKF_POS_VAR": round(ekf_pos_variance, 3),
             "EKF_VEL_VAR": round(ekf_velocity_variance, 3),
+            # Attitude
+            "ROLL":  round(roll_deg, 1),
+            "PITCH": round(pitch_deg, 1),
+            # Navigation: where the autopilot thinks the next waypoint is and
+            # what it's trying to do about it. NAV_CONTROLLER_OUTPUT-derived.
+            "NAV_TARGET_BEARING":  round(nav_target_bearing, 1),
+            "NAV_DESIRED_BEARING": round(nav_desired_bearing, 1),
+            "NAV_WP_DIST_M":       int(nav_wp_dist_m),
+            "NAV_XTRACK_ERROR_M":  round(nav_xtrack_error_m, 2),
+            # Heading error: how many degrees off from target_bearing the
+            # boat's actual heading is, normalised to [-180, +180].
+            "NAV_HEADING_ERROR":   round(((nav_target_bearing - heading + 540) % 360) - 180, 1),
+            # Servo deflection as a percentage of full travel from neutral
+            # 1500 µs (so -100% = full left/reverse, +100% = full right/forward).
+            "STEER_DEFLECTION_PCT":    round((servo1_pwm - 1500) / 4.0, 1) if servo1_pwm else 0,
+            "THROTTLE_DEFLECTION_PCT": round((servo3_pwm - 1500) / 4.0, 1) if servo3_pwm else 0,
             "HB_AGE_MS": hb_age_ms,
             "GPS_AGE_MS": gps_age_ms,
             "ESP32_AGE_MS": esp32_age_ms,
@@ -1155,6 +1219,7 @@ async def telemetry_broadcast():
             "MOCK_MODE": bool(os.environ.get("AQUABOT_ESP32_TCP")),
             "MOCK_SCENARIO": _mock_scenario,
             "MOCK_SCENARIOS": list(_mock_available_scenarios),
+            "MOCK_MEMBERS": _mock_members,
         }
         last_statustext = ""
         message = json.dumps(data)
@@ -1197,18 +1262,23 @@ def run_async():
 # =====================================================
 _mock_proc = None
 _mock_scenario = os.environ.get("AQUABOT_MOCK_SCENARIO", "follower_3boat")
+_mock_members = 3
 _mock_lock = threading.Lock()
 _mock_available_scenarios = (
     "follower_3boat", "leader_3boat", "leader_silence_test", "stop_test"
 )
 
 
-def _spawn_mock_subprocess(scenario):
-    """Start (or restart) the mock ESP32 subprocess with the given scenario.
+def _spawn_mock_subprocess(scenario=None, members=None):
+    """Start (or restart) the mock ESP32 subprocess with the given config.
+    Either argument can be None to keep the current value.
     Idempotent: kills any existing one first. Returns True on success."""
-    global _mock_proc, _mock_scenario
-    if scenario not in _mock_available_scenarios:
+    global _mock_proc, _mock_scenario, _mock_members
+    s = scenario if scenario is not None else _mock_scenario
+    m = members if members is not None else _mock_members
+    if s not in _mock_available_scenarios:
         return False
+    m = max(2, min(50, int(m)))
     with _mock_lock:
         if _mock_proc is not None:
             try:
@@ -1220,11 +1290,13 @@ def _spawn_mock_subprocess(scenario):
             _mock_proc = None
         try:
             _mock_proc = subprocess.Popen(
-                [sys.executable, "-u", "tools/swarm_mock.py", "--scenario", scenario],
+                [sys.executable, "-u", "tools/swarm_mock.py",
+                 "--scenario", s, "--members", str(m)],
                 stdout=sys.stdout, stderr=sys.stderr,
             )
-            _mock_scenario = scenario
-            print(f"[MOCK] spawned scenario={scenario} pid={_mock_proc.pid}")
+            _mock_scenario = s
+            _mock_members = m
+            print(f"[MOCK] spawned scenario={s} members={m} pid={_mock_proc.pid}")
             return True
         except Exception as e:
             print(f"[MOCK] spawn error: {e}")
@@ -1233,25 +1305,43 @@ def _spawn_mock_subprocess(scenario):
 
 def _mock_pixhawk_feeder():
     """Dev-only thread: when AQUABOT_ESP32_TCP is set we typically don't have
-    a real Pixhawk on UDP 14552. Pretend the boat is parked ~5m east of the
-    swarm_mock reference point with a 3D fix so the boat icon sits visibly
-    APART from the leader crown on the map."""
+    a real Pixhawk on UDP 14552. Park the local boat ~5m east of the leader
+    so the markers don't overlap. When swarm mode is enabled and a target
+    is known, lerp the boat toward its assigned slot at 0.5 m/s — that way
+    the operator can see the simulated swarm actually move."""
     global lat, lon, heading, gps_fix_type, gps_sats, home_set, last_heartbeat_ts, last_gps_ts, mode, armed
-    # Reference is the swarm_mock leader (33.42746, -111.93584). Park the
-    # local boat ~5m east of that so the markers don't overlap.
     lat = 33.42746
     lon = -111.93584 + (5.0 / (111111.0 * math.cos(math.radians(33.42746))))
-    heading = 270.0  # face west (toward the leader) so the arrow visually points at them
+    heading = 270.0
     gps_fix_type = 3
     gps_sats = 12
     home_set = True
     mode = "GUIDED"
     armed = True
+
+    TICK_S = 0.2          # smoother motion than 1 Hz
+    SPEED_MS = 0.5        # 0.5 m/s — matches the WP_SPEED_MS default
+
     while True:
+        snap = swarm.snapshot()
+        target = snap.get('target_latlon')
+        if snap.get('enabled') and target and snap.get('role') == 'follower':
+            tlat, tlon, _thead = target
+            # Compute great-circle delta in meters using small-angle approximation.
+            dlat_m = (tlat - lat) * 111111.0
+            dlon_m = (tlon - lon) * 111111.0 * math.cos(math.radians(lat))
+            dist = math.hypot(dlat_m, dlon_m)
+            if dist > 0.05:
+                step = min(SPEED_MS * TICK_S, dist)
+                lat += (dlat_m / dist) * step / 111111.0
+                lon += (dlon_m / dist) * step / (111111.0 * math.cos(math.radians(lat)))
+                # Heading = bearing toward target (deg clockwise from north)
+                heading = (math.degrees(math.atan2(dlon_m, dlat_m)) + 360) % 360
+
         last_heartbeat_ts = time.time()
         last_gps_ts = time.time()
         swarm.feed_pixhawk_gps(lat, lon, heading, gps_fix_type, int(time.time()))
-        time.sleep(1.0)
+        time.sleep(TICK_S)
 
 
 if __name__ == "__main__":

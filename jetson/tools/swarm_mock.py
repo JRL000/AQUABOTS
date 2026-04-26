@@ -46,7 +46,7 @@ from swarm_protocol import (  # noqa: E402
 # ---------------------------------------------------------------------------
 LEADER_LAT0 = 33.42746
 LEADER_LON0 = -111.93584
-LEADER_HEADING0 = 90.0     # facing east
+LEADER_HEADING0 = 0.0      # facing north — formations point "up" on the map
 
 
 # ---------------------------------------------------------------------------
@@ -86,16 +86,16 @@ def calc_offset(pattern: str, node_index: int, total_nodes: int,
 # ---------------------------------------------------------------------------
 
 class Scenario:
-    """A scenario is a function that, given a sender callable, runs an event
-    timeline. The sender takes a string line (already newline-terminated)
-    and writes it to the connected Jetson."""
+    """A scenario is a function that, given a sender callable + a shared
+    MockState, runs an event timeline. The sender takes a string line
+    (already newline-terminated) and writes it to the connected Jetson."""
 
-    def __init__(self, name: str, runner: Callable[[Callable[[str], None]], None]):
+    def __init__(self, name, runner):
         self.name = name
         self.runner = runner
 
-    def run(self, send: Callable[[str], None]):
-        self.runner(send)
+    def run(self, send, state):
+        self.runner(send, state)
 
 
 def _emit(send, tag, **kv):
@@ -103,45 +103,84 @@ def _emit(send, tag, **kv):
     send(f"{tag}:{body}\n")
 
 
-def scenario_follower_3boat(send):
-    """This boat is node 1 in a 3-boat wedge with leader = node 2.
-    Leader is stationary so the markers stop moving and the visual is
-    easier to interpret."""
-    pattern = "wedge"
-    spacing = 2000
-    total = 3
-    my_index = 1     # index 1 = first follower (left side of wedge)
+# Mutable mock state — updated by inbound SET_FORMATION / SET_MEMBERS lines
+# from the Jetson so the GUI feels responsive.
+class MockState:
+    def __init__(self, members=3, pattern="wedge", spacing=2000):
+        self.members  = members
+        self.pattern  = pattern
+        self.spacing  = spacing
+        self.my_index = 1   # first follower
+        self.lock     = threading.Lock()
+        self.dirty    = threading.Event()
 
-    _emit(send, TAG_ROLE, role="follower", leader_id=2, members=total, my_index=my_index)
-    _emit(send, TAG_FORMATION, type=pattern, spacing=spacing, nodes=total)
+    def update(self, **kw):
+        with self.lock:
+            for k, v in kw.items():
+                if hasattr(self, k):
+                    setattr(self, k, v)
+        self.dirty.set()
+
+    def snapshot(self):
+        with self.lock:
+            return self.members, self.pattern, self.spacing, self.my_index
+
+
+def scenario_follower_3boat(send, state=None):
+    """This boat is node 1 in a 3-boat wedge with leader = node 2.
+    Leader is stationary so the markers stop moving. The pattern, spacing,
+    and total member count come from MockState — which the Jetson can change
+    on the fly via SET_FORMATION / mock_set_members."""
+    if state is None:
+        state = MockState()
 
     seq = 0
+    last_pattern = (None, None, None)
     while True:
+        members, pattern, spacing, my_index = state.snapshot()
+        cur = (pattern, spacing, members)
+        if cur != last_pattern:
+            _emit(send, TAG_ROLE, role="follower", leader_id=2,
+                  members=members, my_index=my_index)
+            _emit(send, TAG_FORMATION, type=pattern, spacing=spacing, nodes=members)
+            last_pattern = cur
+
         _emit(send, TAG_LEADER_GPS,
               lat=f"{LEADER_LAT0:.7f}", lon=f"{LEADER_LON0:.7f}",
               h=f"{LEADER_HEADING0:.1f}", age_ms=100)
-        x, y, h = calc_offset(pattern, my_index, total, spacing)
+        x, y, h = calc_offset(pattern, my_index, members, spacing)
         _emit(send, TAG_TARGET, x=x, y=y, h=h, seq=seq)
         seq += 1
-        time.sleep(1.0)
+        # Wake early if state changed mid-cycle so updates feel snappy.
+        state.dirty.wait(timeout=1.0)
+        state.dirty.clear()
 
 
-def scenario_leader_3boat(send):
-    """This boat is the leader (node 2). It does not receive a target offset
-    (offset is 0 by definition for the leader); it only emits ROLE +
-    FORMATION + occasional re-broadcasts."""
-    _emit(send, TAG_ROLE, role="leader", leader_id=2, members=3, my_index=0)
-    _emit(send, TAG_FORMATION, type="wedge", spacing=2000, nodes=3)
+def scenario_leader_3boat(send, state=None):
+    """This boat is the leader. Offsets are always (0,0,0); the formation
+    pattern + size are still configurable so the rendered ghost markers for
+    the swarm reflect the current selection."""
+    if state is None:
+        state = MockState()
+    state.my_index = 0
 
     seq = 0
+    last = (None, None, None)
     while True:
-        # Leader's offset is always (0,0,0)
+        members, pattern, spacing, _ = state.snapshot()
+        cur = (pattern, spacing, members)
+        if cur != last:
+            _emit(send, TAG_ROLE, role="leader", leader_id=2,
+                  members=members, my_index=0)
+            _emit(send, TAG_FORMATION, type=pattern, spacing=spacing, nodes=members)
+            last = cur
         _emit(send, TAG_TARGET, x=0, y=0, h=0, seq=seq)
         seq += 1
-        time.sleep(2.0)
+        state.dirty.wait(timeout=2.0)
+        state.dirty.clear()
 
 
-def scenario_leader_silence_test(send):
+def scenario_leader_silence_test(send, state=None):
     """Same as follower_3boat, but the leader GPS goes silent after 15s
     so we can verify the stale-GPS HOLD trip."""
     pattern = "line"
@@ -165,7 +204,7 @@ def scenario_leader_silence_test(send):
         time.sleep(1.0)
 
 
-def scenario_stop_test(send):
+def scenario_stop_test(send, state=None):
     """Run as a follower for 10s, then leader sends emergency STOP."""
     pattern = "wedge"
     spacing = 2000
@@ -203,19 +242,19 @@ SCENARIOS = {
 # Server
 # ---------------------------------------------------------------------------
 
-def serve(host: str, port: int, scenario: Scenario):
+def serve(host, port, scenario, members):
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind((host, port))
     s.listen(1)
-    print(f"[mock] listening on {host}:{port}, scenario={scenario.name}")
+    print(f"[mock] listening on {host}:{port}, scenario={scenario.name}, members={members}")
     print("[mock] waiting for Jetson to connect...")
 
     while True:
         conn, addr = s.accept()
         print(f"[mock] connection from {addr}")
         try:
-            run_session(conn, scenario)
+            run_session(conn, scenario, members)
         except (BrokenPipeError, ConnectionResetError):
             print("[mock] Jetson disconnected; waiting for next connect...")
         except KeyboardInterrupt:
@@ -228,12 +267,15 @@ def serve(host: str, port: int, scenario: Scenario):
                 pass
 
 
-def run_session(conn: socket.socket, scenario: Scenario):
+def run_session(conn, scenario, members):
     """One Jetson session: spawn a sender thread (the scenario) and read
-    inbound bytes (ANCHOR_GPS / SET_FORMATION / SWARM_ENABLE) on this thread."""
+    inbound bytes (ANCHOR_GPS / SET_FORMATION / SWARM_ENABLE) on this thread.
+    The shared MockState lets the inbound side update what the scenario
+    emits — so SET_FORMATION from the GUI re-shapes the swarm in real time."""
     stop_flag = {"stop": False}
+    state = MockState(members=members)
 
-    def send(line: str):
+    def send(line):
         if stop_flag["stop"]:
             return
         try:
@@ -241,7 +283,7 @@ def run_session(conn: socket.socket, scenario: Scenario):
         except (BrokenPipeError, ConnectionResetError, OSError):
             stop_flag["stop"] = True
 
-    sender_thread = threading.Thread(target=scenario.run, args=(send,), daemon=True)
+    sender_thread = threading.Thread(target=scenario.run, args=(send, state), daemon=True)
     sender_thread.start()
 
     buf = b""
@@ -261,6 +303,15 @@ def run_session(conn: socket.socket, scenario: Scenario):
             tag, fields = parse_line(text)
             if tag:
                 print(f"[mock <-] {tag}: {fields}")
+                # Reflect SET_FORMATION into the running scenario.
+                if tag == "SET_FORMATION":
+                    pat = fields.get("type", "wedge")
+                    sp  = int(fields.get("spacing", 2000))
+                    state.update(pattern=pat, spacing=sp)
+                elif tag == "SET_MEMBERS":
+                    n = int(fields.get("n", 3))
+                    n = max(2, min(50, n))
+                    state.update(members=n)
             else:
                 print(f"[mock <-] (ignored) {text}")
     stop_flag["stop"] = True
@@ -272,8 +323,11 @@ def main():
     ap.add_argument("--port", type=int, default=7790)
     ap.add_argument("--scenario", choices=sorted(SCENARIOS.keys()),
                     default="follower_3boat")
+    ap.add_argument("--members", type=int, default=3,
+                    help="initial swarm size (2..50)")
     args = ap.parse_args()
-    serve(args.host, args.port, SCENARIOS[args.scenario])
+    members = max(2, min(50, args.members))
+    serve(args.host, args.port, SCENARIOS[args.scenario], members)
 
 
 if __name__ == "__main__":

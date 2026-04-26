@@ -240,22 +240,26 @@ function initializeMap(lat, lon) {
     // Base layers — satellite is the default since we operate on water where
     // street maps show nothing but a solid blue blob. Users can flip to the
     // other base layers using the control in the top-right of the map.
-    const baseLayers = {
-        "Satellite": L.tileLayer(
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-            {
-                maxZoom: 19,
-                attribution: 'Tiles &copy; Esri — World Imagery'
-            }
-        ),
-        "Street (OSM)": L.tileLayer(
-            'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-            { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }
-        ),
-        "Topographic": L.tileLayer(
-            'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
-            { maxZoom: 17, attribution: 'Map data &copy; OpenTopoMap (CC-BY-SA)' }
-        ),
+    // Tile providers. maxZoom = highest zoom the user can request. We CAP this
+    // at the provider's actual max so Leaflet never asks for a tile that
+    // doesn't exist (which produces the gray "map data not yet available" hole).
+    // detectRetina removed because, combined with maxNativeZoom, it can request
+    // a zoom level past the cap and gray things out.
+    // Curated base-layer list. Show the FOUR options that earn their slot:
+    // a satellite, a streets map, a topo, and (if Mapbox available) a
+    // satellite-with-labels for naming things while you watch the boat.
+    // If a Mapbox token is configured we use the much sharper Mapbox tiles
+    // for the satellite + outdoors options; otherwise fall back to free.
+    const tk = window.MAPBOX_TOKEN || '';
+    const baseLayers = tk ? {
+        "Satellite":          L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/satellite-v9/tiles/{z}/{x}/{y}?access_token=${tk}`,         { tileSize: 512, zoomOffset: -1, maxZoom: 22 }),
+        "Satellite + labels": L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/satellite-streets-v12/tiles/{z}/{x}/{y}?access_token=${tk}`,{ tileSize: 512, zoomOffset: -1, maxZoom: 22 }),
+        "Outdoors / Topo":    L.tileLayer(`https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}?access_token=${tk}`,         { tileSize: 512, zoomOffset: -1, maxZoom: 22 }),
+        "Streets":            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                                                { maxZoom: 19 }),
+    } : {
+        "Satellite": L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxZoom: 19 }),
+        "Streets":   L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',                                            { maxZoom: 19 }),
+        "Topo":      L.tileLayer('https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryTopo/MapServer/tile/{z}/{y}/{x}', { maxZoom: 18 }),
     };
 
     // Optional overlay: OpenSeaMap marine chart (buoys, depths, hazards).
@@ -263,16 +267,20 @@ function initializeMap(lat, lon) {
     const overlays = {
         "Nautical (OpenSeaMap)": L.tileLayer(
             'https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png',
-            { maxZoom: 18, attribution: '&copy; OpenSeaMap contributors' }
+            { maxZoom: 18 }
         ),
     };
 
     map = L.map('map', {
         layers: [baseLayers["Satellite"]],
-        zoomControl: false,           // no built-in +/- (mouse wheel still works)
-    }).setView([lat, lon], 17);
+        zoomControl: false,
+        attributionControl: false,
+        maxZoom: tk ? 22 : 19,
+    }).setView([lat, lon], 18);
+    // Layer picker top-right (clear of the bottom swarm-strip and the
+     // fullscreen button which lives outside the map in the header bar).
     L.control.layers(baseLayers, overlays,
-                     { position: 'bottomright', collapsed: true }).addTo(map);
+                     { position: 'topright', collapsed: true }).addTo(map);
 
     // Live mouse-position readout in the top-right of the map panel header.
     // Useful when placing waypoints on a lake with no road reference.
@@ -434,6 +442,39 @@ function updateTelemetryUI(t) {
 
     const speed = document.getElementById("speedKnots");
     if (speed) speed.textContent = spd.toFixed(1);
+
+    // Status HUD strip — single dense row above the map
+    const hudMode = document.getElementById('hudMode');
+    if (hudMode) hudMode.textContent = t.MODE || '--';
+    const hudSpeed = document.getElementById('hudSpeed');
+    if (hudSpeed) hudSpeed.textContent = (spd * 1.94384).toFixed(1);
+    const hudGps = document.getElementById('hudGps');
+    if (hudGps) {
+        const fix = parseInt(t.GPS_FIX, 10);
+        const sats = parseInt(t.GPS_SATS, 10) || 0;
+        const fixStr = fix >= 4 ? 'RTK' : fix === 3 ? '3D' : fix === 2 ? '2D' : 'NO';
+        hudGps.textContent = `${fixStr}·${sats}`;
+        hudGps.parentElement.classList.toggle('hud-good', fix >= 3);
+        hudGps.parentElement.classList.toggle('hud-bad',  fix < 3);
+    }
+    const hudBat = document.getElementById('hudBat');
+    if (hudBat) {
+        const v = parseFloat(t.BAT_V);
+        const pct = parseInt(t.BAT_PCT, 10);
+        if (!isNaN(v) && v > 1) {
+            hudBat.textContent = pct >= 0 ? `${v.toFixed(1)}V·${pct}%` : `${v.toFixed(1)}V`;
+            hudBat.parentElement.classList.toggle('hud-bad', v < 11.0);
+            hudBat.parentElement.classList.toggle('hud-warn', v >= 11.0 && v < 11.6);
+        } else {
+            hudBat.textContent = '--';
+        }
+    }
+    const hudRec = document.getElementById('hudRec');
+    if (hudRec) {
+        const recEl = document.getElementById('recordIndicator');
+        const isRec = recEl && recEl.style.display && recEl.style.display !== 'none';
+        hudRec.style.display = isRec ? '' : 'none';
+    }
 
     // 🗺️ Map update
     if (hasFix) {

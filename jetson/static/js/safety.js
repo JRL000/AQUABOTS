@@ -296,6 +296,15 @@ function applyPrearmUI(state) {
         summary.classList.add(worst === 'ok' ? 'ok' : worst === 'warn' ? 'warn' : 'fail');
         summary.textContent = worst === 'ok' ? 'READY' : worst === 'warn' ? 'WARNINGS' : 'NOT READY';
     }
+    // Mirror to the status HUD pill at the top of the page.
+    const hudVal = document.getElementById('hudPrearmVal');
+    const hudPill = document.getElementById('hudPrearm');
+    if (hudVal && hudPill) {
+        hudVal.textContent = worst === 'ok' ? 'READY' : worst === 'warn' ? 'WARN' : 'NOT READY';
+        hudPill.classList.toggle('hud-good', worst === 'ok');
+        hudPill.classList.toggle('hud-warn', worst === 'warn');
+        hudPill.classList.toggle('hud-bad',  worst === 'fail');
+    }
     return worst;
 }
 
