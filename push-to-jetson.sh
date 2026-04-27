@@ -13,7 +13,7 @@ Usage: ./push-to-jetson.sh <target>
 
 Targets:
   webrtc      jetson/webrtc_sender.py      -> ~/webrtc_jetson.py              (service: webrtc)
-  app         jetson/app.py                -> ~/AquaBotGUI_WebRTC/app.py      (service: aquabot-app)
+  app         jetson/app.py + swarm_*.py   -> ~/AquaBotGUI_WebRTC/            (service: aquabot-app)
   signaling   jetson/signaling_server.py   -> ~/AquaBotGUI_WebRTC/            (service: signaling)
   mavproxy    jetson/mavproxy_launcher.py  -> ~/mavproxy_launcher.py          (service: mavproxy)
   ui          jetson/templates + static    -> ~/AquaBotGUI_WebRTC/            (service: aquabot-app)
@@ -45,8 +45,8 @@ push_webrtc() {
 }
 
 push_app() {
-  echo ">> app.py -> $JETSON:$APP_DIR/app.py"
-  scp app.py "$JETSON:$APP_DIR/app.py"
+  echo ">> app.py + swarm_coordinator.py + swarm_protocol.py -> $JETSON:$APP_DIR/"
+  scp app.py swarm_coordinator.py swarm_protocol.py "$JETSON:$APP_DIR/"
   restart_and_tail aquabot-app
 }
 
