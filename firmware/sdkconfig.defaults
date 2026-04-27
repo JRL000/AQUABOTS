@@ -1,0 +1,10 @@
+# ESP-IDF default config for AQUABOTS firmware.
+# Anything here gets baked into a fresh sdkconfig on first build.
+# See: https://docs.espressif.com/projects/esp-idf/en/latest/api-guides/build-system.html#custom-sdkconfig-defaults
+
+# Use the chip's native USB Serial/JTAG for the console so set_node_id and
+# the rest of the REPL work over the same USB cable used to flash.
+# Without this, the interactive console binds to UART0 (GPIO 43/44) and
+# typing into `idf.py monitor` over USB does nothing.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+CONFIG_ESP_CONSOLE_SECONDARY_NONE=y
