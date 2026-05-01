@@ -502,3 +502,40 @@ If only the third fails, motor-lead choke needs more turns or a higher-µ ferrit
 - [ ] `BATT_AMP_PERVLT = 17.0` still unverified against ammeter under propulsion load.
 - [ ] AUTO mode end-to-end mission test still pending.
 
+---
+
+## Changelog — 2026-05-01 (later same day) — Software audit + cleanup batch
+
+After the GPS shielding work I did a full code-side sweep with Claude on Jetson + firmware integration. Surfaced one major bug we'd been blind to plus four already-known issues that finally got addressed.
+
+### Major bug fix — swarm-bridge UART transport was silently dead
+
+ESP32 firmware writes/reads SWARM_* messages via `uart_write_bytes` / `uart_read_bytes` on `SENSOR_BRIDGE_JETSON_UART_NUM`. That constant was set to `UART_NUM_0`, which is the IDF console (USB Serial JTAG). `sensor_bridge` had a special-case `fwrite(stdout)` path that made TEMP/SAL/PH lines reach `/dev/ttyACM1` correctly, but `swarm_bridge` had no such fallback — `uart_*_bytes` calls on a UART with no driver installed silently fail.
+
+Result: **swarm formation has never actually worked on real hardware.** Dev mode worked because TCP fallback uses an entirely different transport.
+
+Fix: moved `SENSOR_BRIDGE_JETSON_UART_NUM` to **`UART_NUM_2`** on **GPIO 5 (TX) / GPIO 6 (RX)**. Both `sensor_bridge` and `swarm_bridge` now use the standard UART driver path on a real hardware UART. UART_NUM_0 stays with the IDF console for the interactive REPL.
+
+### Hardware actions required before next deploy
+
+1. Re-flash ESP32 firmware (new UART config).
+2. Wire ESP32 GPIO 5/6 → Jetson `/dev/ttyTHS2` over JST-SH 4-pin (TX, RX, GND; 3.3 V logic both ends, no level shifter required, override Jetson tty path via `AQUABOT_ESP32_TTY` env var if your DT overlay differs).
+3. See `AQUABOTS_WIRING_GUIDE.md` § "S2 / IF-3 specifics" for the full pinout.
+
+### Other software fixes
+
+- **`arm_vehicle()` / `disarm_vehicle()` finally verify success** — both poll the HEARTBEAT-driven `armed` global for up to 2 s after sending the command and return `(success: bool, message: str)`. On failure, they surface the latest STATUSTEXT as the reason (where ArduPilot puts pre-arm rejections like "EKF compass var" even with `ARMING_CHECK=0`). `start_mission()` now uses this to fail early instead of blindly trying AUTO. WS handlers for `"ARM"` / `"DISARM"` / `"abort"` / `"estop"` send the result back to the GUI.
+- **GUI start-mission watchdog removed** — the 8-second client-side timeout in `controls.js` was firing the misleading "Mode did not switch to AUTO" message *before* the server (which can take up to 33 s for HOME wait + AUTO ack) had a chance to return the real reason. Phase transition is now driven by telemetry; status text reflects the actual server response.
+- **`webrtc_sender.py` MAVLink source fixed** — was opening the non-existent `/dev/ttyACM0`; now consumes mavproxy's existing UDP fan-out at `udpin:127.0.0.1:14553`.
+
+### Obstacle sensor (A02YYUW) disabled
+
+ESP32-S3 only has 3 UARTs (0=console, 1=pH, 2=Jetson swarm-bridge). With UART_NUM_2 now correctly reserved for the Jetson link, there's no free hardware UART for the A02YYUW. The pre-existing `firmware_uart1_conflict` (sensor_bridge pH and a02yyuw both fighting for UART_NUM_1) was also unfixed. Cleanest path: disable `a02yyuw_init` in `main.c` until either (a) we swap to a non-UART ultrasonic (HC-SR04), (b) add a second ESP32 dedicated to sensors, or (c) bit-bang. Disabled with a comment block listing the options.
+
+### Open follow-ups added by this batch
+
+- [ ] Re-flash ESP32 firmware with UART_NUM_2 / GPIO 5/6 config.
+- [ ] Physical wiring: ESP32 GPIO 5/6 → Jetson ttyTHS2 (JST-SH 4-pin).
+- [ ] End-to-end swarm formation test on real hardware (this would be the first time it actually works).
+- [ ] Decide future of obstacle sensor (currently disabled).
+

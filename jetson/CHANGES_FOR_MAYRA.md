@@ -489,3 +489,102 @@ module (acts as RF shield + GPS ground plane). After install,
 `pos_horiz_variance` dropped to 0.01–0.03, `GPS_GLITCHING` cleared, AUTO mode
 gate satisfied. Detail in `Claude/project-docs/AQUABOTS_EMI_INSTALL_GUIDE.md`
 Step 12.
+
+---
+
+## Changes — 05-01-2026
+
+Batch of follow-ups from the integration audit on 04-30. Three software
+batches landed:
+
+### Batch 1 — Cosmetic + GUI watchdog
+
+- **`static/js/controls.js` — removed the misleading 8-second client-side
+  watchdog on Start Mission.** The old code optimistically set the phase to
+  `'running'` immediately and reverted to `'uploaded'` with the generic "Mode
+  did not switch to AUTO" message after 8 s if telemetry hadn't shown AUTO.
+  Problem: the server's `start_mission()` can take up to 33 s (30 s HOME wait
+  + 3 s AUTO ack) and now returns the *real* reason on failure (e.g.
+  "HOME not set after 30s", "Mode change to AUTO rejected (still MANUAL)",
+  "EKF variance — flight mode change failed"). The 8-s watchdog was firing
+  before the server response arrived and showing the wrong reason. Removed.
+  Phase transition is now driven by telemetry observing AUTO mode, and the
+  status text reflects the server's actual response.
+- **`swarm_coordinator.py` — moved `parse_line` import to module top.** Was
+  doing an in-function import on every `feed_serial_line` call. Stylistic.
+- **`webrtc_sender.py` — switched MAVLink source from `/dev/ttyACM0` to
+  `udpin:127.0.0.1:14553`.** The Pixhawk is on UART (ttyTHS1, owned by
+  mavproxy.service); `/dev/ttyACM0` doesn't exist on this hardware. The
+  module was silently falling back to `mav = None` and serving a blank
+  telemetry overlay on the video stream. Now consumes mavproxy's existing
+  UDP fan-out for that exact purpose.
+- Deleted the stub duplicate `Claude/project-docs/AQUABOTS POWER SYSTEM
+  CHANGELOG.md` (with space). The underscore version is canonical.
+
+### Batch 2 — `arm_vehicle()` / `disarm_vehicle()` actually report success
+
+Both functions now return `(success: bool, message: str)` and poll the
+HEARTBEAT-driven `armed` global for up to 2 seconds to confirm the autopilot
+accepted the command. On failure, they surface the most recent STATUSTEXT as
+the reason — which is where ArduPilot puts pre-arm rejections (e.g.,
+`"PreArm: EKF compass var"`, `"Crash detected"`) even when `ARMING_CHECK=0`
+bypasses the formal pre-arm gate.
+
+Touched:
+- `app.py` — `arm_vehicle`, `disarm_vehicle` return tuples.
+- `app.py:start_mission` — uses `arm_vehicle` return value, propagates real
+  failure reason instead of always printing "Vehicle armed" then trying AUTO.
+- `app.py` control-handler — `"ARM"` and `"DISARM"` plain-text commands now
+  send back JSON `{action: "arm_result"|"disarm_result", status, message}`
+  responses over the control WS. Existing GUI ignores these for now (the
+  ARMED button still updates from telemetry), but they're available for any
+  future GUI handler that wants to show the explicit success/failure toast.
+- `app.py` — `"abort"` and `"estop"` actions reflect actual disarm result in
+  their WS response.
+- `app.py:trigger_failsafe` — logs the disarm result instead of fire-and-forget.
+
+### Batch 3 — Firmware UART migration + obstacle sensor disabled
+
+**Audit revealed** that the swarm-bridge serial transport between the ESP32
+and the Jetson was **silently dropping all SWARM_\* messages**. Firmware was
+writing/reading swarm-bridge lines via `uart_write_bytes` / `uart_read_bytes`
+on `SENSOR_BRIDGE_JETSON_UART_NUM = UART_NUM_0`, but `sensor_bridge`
+intentionally does *not* install a driver on UART_NUM_0 (it conflicts with
+the IDF console which is bound to USB Serial JTAG). `sensor_bridge` worked
+because it has a special-case `fwrite(stdout)` path; `swarm_bridge` does not.
+Net effect: TEMP/SAL/PH lines reached the Jetson but no swarm formation
+messages did, in either direction.
+
+**Fix:** moved `SENSOR_BRIDGE_JETSON_UART_NUM` to `UART_NUM_2` on a dedicated
+GPIO pair (TX=GPIO 5, RX=GPIO 6). Both `sensor_bridge` and `swarm_bridge` now
+use the standard UART driver path on a real UART. UART_NUM_0 stays with the
+IDF console for the interactive REPL.
+
+**Required hardware action (do before next deploy):** wire ESP32 GPIO 5 →
+Jetson 40-pin header RX (typically `/dev/ttyTHS2`), and ESP32 GPIO 6 → Jetson
+40-pin header TX, with common ground. JST-SH 4-pin connector. 3.3 V logic
+both sides — no level shifter required. Verify the active Jetson DT overlay
+exposes a free `/dev/ttyTHS<N>` (override via `AQUABOT_ESP32_TTY` env var if
+not ttyTHS2). See `Claude/project-docs/AQUABOTS_WIRING_GUIDE.md` § "S2 / IF-3
+specifics" for the connector / cable details.
+
+**Obstacle sensor disabled in `main.c`.** The A02YYUW ultrasonic sensor was
+calling `uart_driver_install` on UART_NUM_1 (already used by sensor_bridge
+for the Atlas EZO pH sensor at 9600 baud), failing every boot with "uart
+driver already installed" and spamming the autopilot logs. With UART_NUM_2
+now reserved for the Jetson swarm-bridge, there is no free hardware UART for
+the obstacle sensor on the ESP32-S3 (only 3 UARTs total: 0=console, 1=pH,
+2=Jetson). The `a02yyuw_init` call in `main.c:458` is commented out with a
+note. To bring it back, options are: (a) replace with an ultrasonic that
+doesn't need a dedicated UART (HC-SR04 on GPIO timer + interrupt), (b) bit-
+bang the A02YYUW protocol, (c) add a second ESP32 dedicated to sensors.
+
+**Required actions to re-deploy:**
+1. Re-flash ESP32 firmware (it has the new UART_NUM_2 + GPIO 5/6 config).
+2. Wire the new ESP32-Jetson UART link (3 wires: TX, RX, GND).
+3. Verify Jetson DT overlay exposes ttyTHS2; override with
+   `AQUABOT_ESP32_TTY` if your DT differs.
+4. `sudo systemctl --user restart aquabot-app` on the Jetson.
+5. Confirm TEMP/SAL/PH still flow (sanity check the new path).
+6. Confirm SWARM_* messages now flow end-to-end (the actual goal — swarm
+   formation will work for the first time in production after this batch).
