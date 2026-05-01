@@ -151,8 +151,18 @@ def set_mode(mode):
         )
 
 def arm_vehicle():
+    """
+    Arm in MANUAL. Returns (success: bool, message: str).
+
+    Polls the HEARTBEAT-driven `armed` global (updated by read_pixhawk()) to
+    confirm the autopilot accepted the command. Surfaces the most recent
+    STATUSTEXT as the failure reason — that's where ArduPilot puts pre-arm
+    rejections (e.g., "PreArm: EKF compass var", "Crash detected") even when
+    ARMING_CHECK=0 bypasses the formal pre-arm gate.
+    """
     print("ARMING VEHICLE")
     set_mode("MANUAL")
+    pre_status = last_statustext
     with pixhawk_lock:
         pixhawk.mav.command_long_send(
             pixhawk.target_system,
@@ -160,9 +170,23 @@ def arm_vehicle():
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
             0, 1, 0, 0, 0, 0, 0, 0
         )
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if armed:
+            return True, "Vehicle armed"
+        time.sleep(0.1)
+    if last_statustext and last_statustext != pre_status:
+        return False, f"Arm rejected: {last_statustext}"
+    return False, "Arm timed out (no autopilot ack in 2s)"
+
 
 def disarm_vehicle():
+    """
+    Disarm. Returns (success: bool, message: str). Same polling pattern as
+    arm_vehicle.
+    """
     print("DISARMING VEHICLE")
+    pre_status = last_statustext
     with pixhawk_lock:
         pixhawk.mav.command_long_send(
             pixhawk.target_system,
@@ -170,6 +194,14 @@ def disarm_vehicle():
             mavutil.mavlink.MAV_CMD_COMPONENT_ARM_DISARM,
             0, 0, 0, 0, 0, 0, 0, 0
         )
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if not armed:
+            return True, "Vehicle disarmed"
+        time.sleep(0.1)
+    if last_statustext and last_statustext != pre_status:
+        return False, f"Disarm rejected: {last_statustext}"
+    return False, "Disarm timed out (no autopilot ack in 2s)"
 
 def start_mission():
     """
@@ -201,8 +233,10 @@ def start_mission():
         print(f"[MISSION] {msg}")
         return False, msg
 
-    arm_vehicle()
-    time.sleep(1)
+    ok, arm_msg = arm_vehicle()
+    if not ok:
+        print(f"[MISSION] {arm_msg} — mission not started")
+        return False, arm_msg
 
     set_mode("AUTO")
     mode_deadline = time.time() + 3
@@ -552,7 +586,8 @@ def trigger_failsafe(reason):
     print(f"[FAILSAFE] Triggered ({reason}) → {action}")
     failsafe_tripped = True
     if action == "DISARM":
-        disarm_vehicle()
+        ok, m = disarm_vehicle()
+        print(f"[FAILSAFE] disarm result: {m}")
     elif action == "RTL":
         set_mode("RTL")
     else:
@@ -635,12 +670,19 @@ def _open_esp32_link():
             except (ConnectionRefusedError, socket.timeout, OSError) as e:
                 print(f"[ESP32] TCP mock not up yet ({e}); retrying in 3s")
                 time.sleep(3)
+    # ESP32 talks to the Jetson over a dedicated hardware UART (firmware:
+    # SENSOR_BRIDGE_JETSON_UART_NUM = UART_NUM_2 on GPIO 5/6). On the Jetson
+    # 40-pin header, that lands on /dev/ttyTHS<N> — typically ttyTHS2 on the
+    # Orin Nano (verify against the active DT overlay). Override via env var
+    # AQUABOT_ESP32_TTY=/dev/ttyTHS<N> if your wiring differs.
+    tty_path = os.environ.get("AQUABOT_ESP32_TTY", "/dev/ttyTHS2")
     while True:
         try:
-            link = serial.Serial('/dev/ttyACM1', 115200, timeout=1)
-            print('[ESP32] Serial connected on /dev/ttyACM1')
+            link = serial.Serial(tty_path, 115200, timeout=1)
+            print(f'[ESP32] Serial connected on {tty_path}')
             return link
         except serial.SerialException:
+            print(f'[ESP32] {tty_path} not available; retrying in 10s')
             time.sleep(10)
 
 
@@ -893,10 +935,11 @@ async def control_handler(websocket):
                     continue
 
                 elif action == "abort":
-                    disarm_vehicle()
+                    loop = asyncio.get_event_loop()
+                    ok, m = await loop.run_in_executor(None, disarm_vehicle)
                     await websocket.send(json.dumps({
-                        "status": "ok",
-                        "message": "Mission aborted — disarmed"
+                        "status": "ok" if ok else "error",
+                        "message": f"Mission aborted — {m}",
                     }))
                     continue
 
@@ -945,10 +988,11 @@ async def control_handler(websocket):
                     # Emergency stop — always disarms, regardless of watchdog config.
                     # Logged prominently so the post-mortem is obvious.
                     print("[ESTOP] Operator pressed emergency stop")
-                    disarm_vehicle()
+                    loop = asyncio.get_event_loop()
+                    ok, m = await loop.run_in_executor(None, disarm_vehicle)
                     await websocket.send(json.dumps({
-                        "status": "ok",
-                        "message": "E-STOP: vehicle disarmed"
+                        "status": "ok" if ok else "error",
+                        "message": f"E-STOP: {m}",
                     }))
                     continue
 
@@ -1124,11 +1168,23 @@ async def control_handler(websocket):
 
             # Plain string commands (existing ARM / DISARM / throttle)
             if msg == "ARM":
-                arm_vehicle()
+                loop = asyncio.get_event_loop()
+                ok, m = await loop.run_in_executor(None, arm_vehicle)
+                await websocket.send(json.dumps({
+                    "action": "arm_result",
+                    "status": "ok" if ok else "error",
+                    "message": m,
+                }))
                 continue
 
             if msg == "DISARM":
-                disarm_vehicle()
+                loop = asyncio.get_event_loop()
+                ok, m = await loop.run_in_executor(None, disarm_vehicle)
+                await websocket.send(json.dumps({
+                    "action": "disarm_result",
+                    "status": "ok" if ok else "error",
+                    "message": m,
+                }))
                 continue
 
             try:

@@ -86,15 +86,31 @@
 // Jetson link  —  UART out
 // ============================================================================
 
-/* UART0 on GPIO 43 / 44 — bridged to the "UART" USB-C port on the
- * DevKitC via the onboard USB-UART chip.  The Jetson connects to that
- * port over USB-C→USB-A and sees /dev/ttyUSB0 @ 115200.
- * NOTE: UART0 is also the IDF default console — swarm log output will
- * be interleaved with sensor CSV lines.  The Jetson-side parser keys
- * on the "TEMP:" prefix and ignores anything else. */
-#define SENSOR_BRIDGE_JETSON_UART_NUM       UART_NUM_0
-#define SENSOR_BRIDGE_JETSON_UART_TX_GPIO   GPIO_NUM_43
-#define SENSOR_BRIDGE_JETSON_UART_RX_GPIO   GPIO_NUM_44
+/* Jetson serial link — dedicated hardware UART (UART_NUM_2).
+ *
+ * History: was UART_NUM_0 (USB CDC console). That worked for sensor TEMP:
+ * lines because sensor_bridge had a special-case path that bypassed the UART
+ * driver and wrote via fwrite(stdout) — but the parallel swarm_bridge module
+ * called uart_write_bytes() / uart_read_bytes() directly with no such bypass,
+ * so all SWARM_* messages silently failed to flow. Discovered 2026-05-01.
+ *
+ * Moved to UART_NUM_2 + dedicated GPIOs so both sensor_bridge and swarm_bridge
+ * use the standard uart_*_bytes API on a real UART driver. UART_NUM_0 stays
+ * with the IDF console (USB CDC) for the interactive REPL.
+ *
+ * Jetson side: wire ESP32 TX (GPIO 5) → Jetson RX, ESP32 RX (GPIO 6) → Jetson
+ * TX, common ground. Pixhawk owns /dev/ttyTHS1 already, so use a different
+ * Jetson UART (typically /dev/ttyTHS2 on the Orin Nano 40-pin header — verify
+ * against your DT overlay). Keep the cable short and twisted, away from the
+ * ESC. See AQUABOTS_WIRING_GUIDE.md for the routing.
+ *
+ * Pin choices: GPIO 5/6 are unused safe pins on most ESP32-S3 boards (not
+ * strapping pins, not USB, not used by sensor_bridge / pH / 1-Wire). If your
+ * board layout needs different pins, change them here — the UART matrix on
+ * S3 routes any UART to any GPIO. */
+#define SENSOR_BRIDGE_JETSON_UART_NUM       UART_NUM_2
+#define SENSOR_BRIDGE_JETSON_UART_TX_GPIO   GPIO_NUM_5
+#define SENSOR_BRIDGE_JETSON_UART_RX_GPIO   GPIO_NUM_6
 #define SENSOR_BRIDGE_JETSON_UART_BAUD      115200
 #define SENSOR_BRIDGE_JETSON_UART_BUF_SIZE  512
 

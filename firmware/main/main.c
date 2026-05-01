@@ -451,13 +451,28 @@ void app_main(void)
         return;
     }
 
-    /* Register the real A02YYUW ultrasonic sensor on UART1, RX=GPIO17,
-     * facing forward (mounting angle 0°). The hardware driver replaces
-     * the mock once registered; obstacle_sense_configure narrows the
-     * tracked window to the sensor's spec (4.5 m range, 120° FOV). */
-    a02yyuw_init(0, UART_NUM_1, GPIO_NUM_17, -1, 0);
-    obstacle_sense_register_driver(a02yyuw_scan_driver);
-    obstacle_sense_configure(4500, 120);
+    /* A02YYUW ultrasonic obstacle sensor — DISABLED 2026-05-01.
+     *
+     * Two issues block bringing this back:
+     *   1. UART_NUM_1 is already owned by sensor_bridge for the Atlas EZO pH
+     *      sensor (init at line 439). Both modules calling uart_driver_install
+     *      on UART_NUM_1 = the second one fails with "uart driver already
+     *      installed" and the autopilot logs spam. Memory: firmware_uart1_conflict.
+     *   2. UART_NUM_2 is now reserved for the Jetson swarm-bridge transport
+     *      (see sensor_bridge.h SENSOR_BRIDGE_JETSON_UART_NUM). The ESP32-S3
+     *      only has three UARTs (0=console, 1=pH, 2=Jetson) — there is no
+     *      free hardware UART for the obstacle sensor.
+     *
+     * To re-enable later, options are:
+     *   - Switch to an ultrasonic that doesn't need a dedicated UART
+     *     (HC-SR04 on GPIO timer + interrupt would work).
+     *   - Bit-bang the A02YYUW protocol on a free GPIO (not great — the chip
+     *     emits a 1ms pulse train at 9600 baud equivalent, tight timing).
+     *   - Add a second ESP32 just for sensors.
+     */
+    // a02yyuw_init(0, UART_NUM_1, GPIO_NUM_17, -1, 0);
+    // obstacle_sense_register_driver(a02yyuw_scan_driver);
+    // obstacle_sense_configure(4500, 120);
 
     /* Register event callbacks. */
     membership_register_joined_cb(on_member_joined);
