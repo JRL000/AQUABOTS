@@ -720,8 +720,11 @@ def read_pixhawk():
     tc = pixhawk.target_component
 
     print("Configuring Pixhawk for demo mode...")
-    pixhawk.mav.param_set_send(ts, tc, b'BRD_SAFETYENABLE', 0,
-                               mavutil.mavlink.MAV_PARAM_TYPE_INT32)
+    # BRD_SAFETY_DEFLT (newer ArduPilot) replaced BRD_SAFETYENABLE: 0 = boot with
+    # safety off so motor outputs are live without holding the physical button.
+    # Only takes effect at the next autopilot boot.
+    pixhawk.mav.param_set_send(ts, tc, b'BRD_SAFETY_DEFLT', 0,
+                               mavutil.mavlink.MAV_PARAM_TYPE_INT8)
     pixhawk.mav.param_set_send(ts, tc, b'ARMING_CHECK', 0,
                                mavutil.mavlink.MAV_PARAM_TYPE_INT32)
     pixhawk.mav.param_set_send(ts, tc, b'FS_THR_ENABLE', 0,
