@@ -428,3 +428,64 @@ awareness — nothing was modified.
 
 4. ~~**`static/js/webrtc.js` — signaling server IP hardcoded**~~ **ALREADY FIXED
    by Mayra.** webrtc.js now uses `window.location.hostname` dynamically.
+
+---
+
+## Changes — 04-30-2026
+
+### `app.py` — boot-time safety param renamed: `BRD_SAFETYENABLE` → `BRD_SAFETY_DEFLT`
+
+**Problem observed:** the autopilot reported `armed` after every ARM command, but
+the motor outputs stayed clamped at 1500 PWM (servo3 didn't move from neutral
+even with explicit RC override). Operator-visible symptom was an "armed boat
+that won't move."
+
+**Root cause:** `read_pixhawk()` in `app.py` writes a "demo mode" config block
+on first heartbeat, including `BRD_SAFETYENABLE = 0` to disable the physical
+safety button. Newer ArduPilot firmware **renamed this param to `BRD_SAFETY_DEFLT`**
+and the old name is silently discarded — so this line has been a no-op since
+the firmware update. The autopilot kept booting into "safety on, motor outputs
+blocked" state every time. Sessions that worked must have had someone
+physically holding the safety button until the LED went solid red.
+
+**Fix:** updated `app.py:723` to write `BRD_SAFETY_DEFLT` (with `INT8` type).
+This param only takes effect at the next autopilot reboot, so the very first
+deploy after this fix needs a one-time `MAV_CMD_PREFLIGHT_REBOOT_SHUTDOWN`
+to apply it; after that it persists across reboots.
+
+**Pushed to Jetson:** yes, via `bash ./push-to-jetson.sh app` on 04-30-2026.
+
+### Pixhawk battery monitor reconfigured for the 6S pack
+
+GUI was reading 4.67 V on a healthy 6S pack — the autopilot's voltage scaling
+was stuck on 3S defaults. Fixed via direct MAVLink param writes (no code change
+needed; documented here so it's findable next time the params drift):
+
+| Param | Value | Notes |
+|---|---|---|
+| `BATT_MONITOR` | 4 | "Voltage and Current" |
+| `BATT_VOLT_MULT` | 52.55 | Calibrated against 24.3 V multimeter reading |
+| `BATT_CAPACITY` | 6000 | mAh |
+
+Reboot the autopilot after writing `BATT_MONITOR` for the sampler to re-init.
+Restore script and full notes are in `Claude/memory/hardware_main_battery.md`.
+
+### `static/js/safety.js` — GUI battery thresholds raised from 3S to 6S
+
+Hardcoded thresholds were `warnV: 12.0, failV: 11.0` (3S LiPo numbers). On a 6S
+pack the GUI showed green by accident at any healthy reading, but **would also
+show green at a dangerously low 18 V** (below 3 V/cell). Wrong direction for
+safety. Now `warnV: 22.2, failV: 20.4`.
+
+### Hardware-side note (no software change) — GPS EMI shielding
+
+GPS module is mounted ~7" from the ESC, under the 12"+ Pixhawk-community
+guideline for u-blox M8N. ESC radiated EMI was making the EKF flag
+`GPS_GLITCHING` and `pos_horiz_variance` spike to 185 — which made AUTO mode
+refuse to engage with "Flight mode change failed" / "EKF variance" in the GUI.
+
+Mitigation installed: a metal plate physically between the ESC and the GPS
+module (acts as RF shield + GPS ground plane). After install,
+`pos_horiz_variance` dropped to 0.01–0.03, `GPS_GLITCHING` cleared, AUTO mode
+gate satisfied. Detail in `Claude/project-docs/AQUABOTS_EMI_INSTALL_GUIDE.md`
+Step 12.

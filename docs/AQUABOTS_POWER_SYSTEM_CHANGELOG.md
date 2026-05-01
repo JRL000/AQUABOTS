@@ -404,3 +404,60 @@ All EMI filtering components, placement locations, and soldering instructions ar
 - [ ] Test TDS analog sensor accuracy with motor running at cruise — compare with/without 100nF cap on ADC pin.
 - [ ] Confirm Pixhawk boots cleanly from the generic 5V buck (no brownout on ESC calibration inrush). If brownouts observed, add series Schottky or larger input bulk cap at Pixhawk POWER.
 - [ ] If battery monitoring over MAVLink is required, wire a V/I sense line to a spare Pixhawk ADC channel or revert the Pixhawk branch to a dedicated Power Module.
+
+---
+
+## Changelog — 2026-04-30 (Pixhawk recovery + GPS EMI shield)
+
+Bench-debug session. Three things landed.
+
+### 1. Pixhawk battery monitor recalibrated for 6S
+
+GUI was showing **4.67 V** on a healthy 6S pack — it was that low because the autopilot's voltage scaling was misconfigured. Possibly drifted, possibly never set correctly for this pack since the 3S→6S swap.
+
+| Param | Old | New | Rationale |
+|---|---|---|---|
+| `BATT_MONITOR` | 0 / 3 (drifting) | **4** | "Voltage and Current" — gives BAT_V, BAT_A, and BAT_PCT instead of voltage-only |
+| `BATT_VOLT_MULT` | 10.1 | **52.55** | Empirical: `actual_pack_V / raw_pin_V = 24.3 / 0.462`. The 10.1 default is for 3S/3DR-style PMs — wrong here. |
+| `BATT_CAPACITY` | 3300 | **6000** | Actual pack capacity in mAh — affects only the % readout, not V/A. |
+
+After write + autopilot reboot (autopilot reboot is required for `BATT_MONITOR` re-init), GUI reads **24.30 V** vs the multimeter's 24.3 V — match. Idle current 0.10 A (BEC + autopilot draw — main propulsion side wasn't loaded). Real load current readout not yet ammeter-verified but plausible.
+
+### 2. Safety-button bypass actually works now
+
+`BRD_SAFETYENABLE` (the param `app.py` was writing at boot to disable the safety button) **doesn't exist on this firmware version** — it was renamed to `BRD_SAFETY_DEFLT`. The autopilot was silently discarding the old name, leaving the safety system in default-on state. Symptom: the autopilot reports `armed`, but motor outputs stay clamped at 1500 PWM — operator sees "armed boat that won't move."
+
+Fix:
+- Wrote `BRD_SAFETY_DEFLT = 0` to the autopilot directly + rebooted.
+- Updated `jetson/app.py:723` to write the correct param name on boot. (Commit `25f16e3`, branch `swarm-formation`.)
+
+Verified post-reboot: SERVO3 PWM follows throttle override (1500 → 1609 with override 1700), motor spins, steering servo deflects on ch1 sweeps.
+
+### 3. GUI low-battery thresholds raised from 3S → 6S
+
+`jetson/static/js/safety.js:222` had hardcoded `warnV: 12.0, failV: 11.0` — those are 3S numbers. On a 6S pack the GUI showed green by accident at any healthy reading, **but would also show green at a dangerously low 18 V** (below 3 V/cell). Wrong direction for safety.
+
+Updated to `warnV: 22.2, failV: 20.4` (3.7 V/cell nominal warn, 3.4 V/cell fail). Pushed to Jetson + committed (`49b22de`).
+
+### 4. GPS EMI fix — metal plate between ESC and GPS module
+
+After all of the above, AUTO mode was *still* refusing to engage. Cause was independent of the battery work: the autopilot's EKF had flagged `GPS_GLITCHING` because `pos_horiz_variance` was reading **185** (should be <1.0). GPS receiver itself was reporting fix=4 RTK with 13–17 sats — the receiver was fine; ESC EMI was making position samples jump enough between epochs that the EKF rejected them.
+
+GPS module sits ~7" from the ESC. Pixhawk-community guideline is **12"+** for u-blox M8N modules. This boat is well under that.
+
+Mitigation: added a **metal mounting plate between ESC and GPS module**. Same boat, same location:
+
+| | before plate | after plate |
+|---|---|---|
+| `pos_horiz_variance` | 185.65 | 0.010 – 0.028 |
+| `GPS_GLITCHING` flag | set | cleared 43/43 samples |
+| `POS_HORIZ_ABS` healthy | False | True 43/43 samples |
+
+~9000× improvement. Plate is acting as RF shield and ground plane. AUTO mode requirement (`POS_HORIZ_ABS = healthy`) now satisfied. Detail in `AQUABOTS_EMI_INSTALL_GUIDE.md` Step 12.
+
+### Open follow-ups
+
+- [ ] `BATT_AMP_PERVLT = 17.0` (default) not yet verified against an ammeter under real propulsion load. Idle reading was plausible.
+- [ ] GPS-to-ESC distance still under 12" community guideline. The plate fixes it now; re-verify if ESC mounting or battery routing changes.
+- [ ] AUTO mode end-to-end mission test still pending (bench testing now passes the EKF gate, but the actual mission run hasn't been attempted since the fixes).
+
