@@ -461,3 +461,44 @@ Mitigation: added a **metal mounting plate between ESC and GPS module**. Same bo
 - [ ] GPS-to-ESC distance still under 12" community guideline. The plate fixes it now; re-verify if ESC mounting or battery routing changes.
 - [ ] AUTO mode end-to-end mission test still pending (bench testing now passes the EKF gate, but the actual mission run hasn't been attempted since the fixes).
 
+---
+
+## Changelog — 2026-05-01 (GPS shielding refinements — install only, not yet verified)
+
+Follow-up to the 04-30 GPS EMI work. The original 04-30 plate cleaned up `pos_horiz_variance` to 0.01–0.03 *briefly* but started "acting up" within the same session. Diagnosis: the plate was just sitting in the fiberglass hull, electrically floating. A floating piece of metal is not a shield — it picks up RF and re-radiates it (per this project's own EMI guide Universal Rule 9: "Ungrounded = antenna").
+
+Two refinements installed today:
+
+### 1. Plate bonded to (−) busbar
+
+- Single bond point only (multiple = ground loop, an EMI source in itself).
+- Bond on the **ESC side** of the plate, not the GPS side. Source-side grounding is significantly more effective at killing radiation than victim-side.
+- Short fat strap: 14–16 AWG braided, < 5". Every inch of wire is series inductance that defeats HF shielding.
+- Star to the (−) busbar stud directly via ring terminal under the nut.
+
+Documented as Step 12c update in `AQUABOTS_EMI_INSTALL_GUIDE.md`.
+
+### 2. Common-mode choke on motor leads
+
+ESC's MOSFETs switch all 3 phases against the same reference simultaneously, so HF noise on the 3 motor wires is *common-mode* — three lines swinging together against ground. Treated with a single ferrite toroid with all 3 motor leads passed through it together as a bundle (NOT one toroid per lead — that would choke the actual motor drive without helping radiated EMI). Material: HF/VHF mix (Fair-Rite 43 or 31, etc.) — distinct from the MnZn power-filtering toroid (F1 / Hondark) used for the ESC's DC input in Step 2. Position: within 3–4" of ESC output. Turns: 2–4 if wire bends without kinking.
+
+Documented as new Step 13 in `AQUABOTS_EMI_INSTALL_GUIDE.md`.
+
+### Verification status: pending
+
+The Jetson dropped off the tailnet during the install work and didn't come back before the session ended. Both fixes are installed and theoretically sound, but the variance numbers under this configuration **have not been measured yet**. Required re-verification next session:
+
+| Scenario | Pass criteria |
+|---|---|
+| Motor off (disarmed) | `pos_horiz_variance` < 1.0, `GPS_GLITCHING` clear |
+| Armed, no throttle | same |
+| Armed with throttle (motor loaded) | same |
+
+If only the third fails, motor-lead choke needs more turns or a higher-µ ferrite. If 1 or 2 fail, the plate ground bond is at fault — re-check ring terminal, strap length, source-side placement.
+
+### Open follow-ups (cumulative)
+
+- [ ] Re-verify EKF variance across all three motor states with the 05-01 fixes installed (most important).
+- [ ] `BATT_AMP_PERVLT = 17.0` still unverified against ammeter under propulsion load.
+- [ ] AUTO mode end-to-end mission test still pending.
+
