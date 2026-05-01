@@ -217,9 +217,8 @@ window.aquaBeep = beep;
 const PREARM_RULES = {
     gcs:       { warn: 2500, fail: 6000 },    // GCS_AGE_MS thresholds
     pixhawk:   { warn: 1500, fail: 3000 },    // HB_AGE_MS
-    // battery threshold: warn < 12.0 V, fail < 11.0 V (default 3S LiPo logic);
-    // gets overridden once the operator dials in a real threshold.
-    battery:   { warnV: 12.0, failV: 11.0 },
+    // 6S LiPo: warn < 22.2 V (3.7 V/cell nominal), fail < 20.4 V (3.4 V/cell).
+    battery:   { warnV: 22.2, failV: 20.4 },
 };
 
 function prearmClassify(t) {
