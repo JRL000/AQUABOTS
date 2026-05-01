@@ -30,7 +30,7 @@ from typing import Callable, Optional
 
 from swarm_protocol import (
     TAG_ROLE, TAG_TARGET, TAG_LEADER_GPS, TAG_FORMATION, TAG_STOP,
-    encode_anchor_gps, encode_set_formation, encode_enable,
+    encode_anchor_gps, encode_set_formation, encode_enable, parse_line,
 )
 
 
@@ -224,7 +224,6 @@ class SwarmCoordinator:
 
     def feed_serial_line(self, line: str):
         """Called by app.py for each newline-stripped line from the ESP32."""
-        from swarm_protocol import parse_line
         tag, fields = parse_line(line)
         if not tag:
             return

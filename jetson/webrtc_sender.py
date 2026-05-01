@@ -55,18 +55,22 @@ except Exception as e:
 # ============================================
 
 try:
-    mav = mavutil.mavlink_connection('/dev/ttyACM0', baud=57600)
-    print("Waiting for Pixhawk heartbeat...")
-    # Bounded wait so this module import can't hang forever when the
-    # Pixhawk USB hasn't enumerated yet on boot. Telemetry fields will
-    # just be blank until mav is (re)opened — better than blocking
-    # webrtc startup and flapping under systemd Restart=.
+    # Pixhawk is on UART (/dev/ttyTHS1 owned by mavproxy.service). mavproxy fans
+    # out a UDP feed on 127.0.0.1:14553 specifically for this module — we don't
+    # touch /dev/ttyACM0 (which doesn't exist on this hardware) or compete with
+    # mavproxy for the UART.
+    mav = mavutil.mavlink_connection('udpin:127.0.0.1:14553')
+    print("Waiting for Pixhawk heartbeat (via mavproxy on :14553)...")
+    # Bounded wait so this module import can't hang forever when mavproxy hasn't
+    # come up yet on boot. Telemetry fields will just be blank until mav is
+    # (re)opened — better than blocking webrtc startup and flapping under
+    # systemd Restart=.
     hb = mav.wait_heartbeat(timeout=5)
     if hb is None:
         mav = None
         print("⚠️ Pixhawk heartbeat timeout — continuing without Pixhawk telemetry")
     else:
-        print("✅ Pixhawk connected")
+        print("✅ Pixhawk connected via mavproxy UDP fan-out")
 except Exception as e:
     mav = None
     print("⚠️ Pixhawk not found:", e)

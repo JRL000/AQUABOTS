@@ -131,15 +131,13 @@ function cmdStartMission() {
         'Confirm the area is clear before proceeding.'
     )) return;
     missionWS.send(JSON.stringify({ action: 'go' }));
-    setMissionStatus('Arming and starting mission...');
-    modeUpdateSuppressUntil = Date.now() + 6000;
-    setMissionPhase('running');
-    setTimeout(() => {
-        if (missionPhase === 'running' && lastKnownMode !== 'AUTO') {
-            setMissionStatus('Mode did not switch to AUTO — check Pixhawk status above.', true);
-            setMissionPhase('uploaded');
-        }
-    }, 8000);
+    setMissionStatus('Starting mission — waiting for HOME + AUTO mode...');
+    // Phase stays "uploaded" until telemetry confirms AUTO is engaged (handled
+    // by the telemetry-driven phase machine in updateTelemetryUI). The server's
+    // start_mission() can take up to 33 s (30 s HOME wait + 3 s AUTO ack) and
+    // returns the real reason on failure ("HOME not set after 30s", "Mode
+    // change to AUTO rejected", etc.) — missionWS.onmessage will overwrite the
+    // "Starting mission..." text with that reason. No client-side timeout.
 }
 
 function cmdHold() {
