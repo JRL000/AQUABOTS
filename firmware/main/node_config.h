@@ -56,6 +56,26 @@ bool node_config_is_provisioned(void);
  */
 void node_config_get_mac(uint8_t *mac);
 
+// ============================================================================
+// HAS_JETSON FLAG
+// ============================================================================
+//
+// Persistent boolean. Set true on hulls that carry a Jetson companion
+// computer (production stack), false on demo follower hulls that run only
+// ESP32 + Pixhawk. The pixhawk_link module reads this at startup to decide
+// whether to drive the Pixhawk directly or stay out of the way.
+
+/**
+ * Returns true if this hull has a Jetson driving the Pixhawk. Defaults to
+ * true (production assumption) if the flag has never been provisioned.
+ */
+bool node_config_has_jetson(void);
+
+/**
+ * Persist the has_jetson flag to NVS.
+ */
+esp_err_t node_config_set_has_jetson(bool has_jetson);
+
 /**
  * Start serial provisioning console
  * Allows setting node_id via serial command

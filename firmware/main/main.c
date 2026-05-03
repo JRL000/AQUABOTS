@@ -48,6 +48,7 @@
 #include "avoidance.h"
 #include "sensor_bridge.h"
 #include "swarm_bridge.h"
+#include "pixhawk_link.h"
 #include "a02yyuw.h"
 
 static const char *TAG = "MAIN";
@@ -121,6 +122,9 @@ static bool on_command_received(const swarm_command_t *command)
     }
 
     swarm_bridge_notify_command(command);
+    if (command->cmd_type == CMD_STOP && !node_config_has_jetson()) {
+        pixhawk_link_emergency_stop();
+    }
     return true;
 }
 
@@ -155,6 +159,9 @@ static void on_position_assigned(const formation_position_t *position, int node_
              (long)position->x_mm, (long)position->y_mm);
     ESP_LOGI(TAG, "    Heading offset: %d°", position->heading_deg);
     swarm_bridge_notify_position(position, node_index);
+    if (!node_config_has_jetson()) {
+        pixhawk_link_set_offset(position, node_index);
+    }
 }
 
 // ============================================================================
@@ -386,6 +393,9 @@ static void register_console_commands(void)
     formation_register_commands();
     obstacle_sense_register_commands();
     avoidance_register_commands();
+    if (!node_config_has_jetson()) {
+        pixhawk_link_register_commands();
+    }
 }
 
 // ============================================================================
@@ -438,6 +448,9 @@ void app_main(void)
     avoidance_init();
     sensor_bridge_init();
     swarm_bridge_init();
+    if (!node_config_has_jetson()) {
+        pixhawk_link_init();   /* demo follower hull */
+    }
 
     ESP_LOGI(TAG, "All modules initialised");
 
@@ -483,11 +496,15 @@ void app_main(void)
     avoidance_start();
     sensor_bridge_start();
     swarm_bridge_start();
+    if (!node_config_has_jetson()) {
+        pixhawk_link_start();   /* demo follower hull */
+    }
 
     ESP_LOGI(TAG, "System running.");
     ESP_LOGI(TAG, "Console: help | info | members | leader | schedule |");
     ESP_LOGI(TAG, "         goto | hold | stop | resume | status |");
     ESP_LOGI(TAG, "         formation | spacing | fmove | fstatus |");
     ESP_LOGI(TAG, "         sensors | detections | mock_add | mock_clear | path_check |");
-    ESP_LOGI(TAG, "         avoid_status | avoid_enable | avoid_disable | avoid_config");
+    ESP_LOGI(TAG, "         avoid_status | avoid_enable | avoid_disable | avoid_config |");
+    ESP_LOGI(TAG, "         set_jetson | px_status | px_stop");
 }

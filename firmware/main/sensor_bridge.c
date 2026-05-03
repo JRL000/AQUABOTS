@@ -21,6 +21,7 @@
  */
 
 #include "sensor_bridge.h"
+#include "node_config.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -406,6 +407,23 @@ static float compute_salinity_ppt(int voltage_mv, float temperature_c)
 }
 
 /**
+ * Send the Atlas EZO "R\r" read command to actively request a fresh pH
+ * reading. Mirrors Jamie's MicroPython logger (Sensor_DataLog.py): the EZO
+ * supports both a continuous-stream mode and a polled-read mode; polling
+ * guarantees a fresh value each tick instead of relying on the ambient
+ * stream cadence.
+ *
+ * Non-blocking — uart_write_bytes returns once the bytes are queued.
+ * Subsequent drain_ph_uart() calls collect the response.
+ */
+static void poll_ph_sensor(void)
+{
+    if (!s_state.ph_uart_ok) return;
+    static const char cmd[] = "R\r";
+    uart_write_bytes(SENSOR_BRIDGE_PH_UART_NUM, cmd, sizeof(cmd) - 1);
+}
+
+/**
  * Drain anything currently waiting in the pH UART RX buffer and parse
  * newline-terminated ASCII pH readings.  On a valid reading, update
  * s_state.snapshot.ph and s_state.ph_last_update_ms.
@@ -462,32 +480,54 @@ static void drain_ph_uart(void)
 // JETSON TX
 // ============================================================================
 
+static void emit_line(const char *line, int n)
+{
+    if (!s_state.jetson_uart_ok || n <= 0) return;
+    if (SENSOR_BRIDGE_JETSON_UART_NUM == UART_NUM_0) {
+        fwrite(line, 1, n, stdout);
+        fflush(stdout);
+    } else {
+        uart_write_bytes(SENSOR_BRIDGE_JETSON_UART_NUM, line, n);
+    }
+}
+
 static void send_to_jetson(const sensor_bridge_snapshot_t *snap)
 {
-    if (!s_state.jetson_uart_ok) {
-        return;
-    }
-
     char line[96];
     int n = snprintf(line, sizeof(line),
                      "TEMP:%.2f,SAL:%.3f,PH:%.2f\n",
                      snap->temperature_c,
                      snap->salinity_ppt,
                      snap->ph);
-    if (n <= 0) {
-        return;
-    }
-    if (n >= (int)sizeof(line)) {
-        n = sizeof(line) - 1;
-    }
+    if (n >= (int)sizeof(line)) n = sizeof(line) - 1;
+    emit_line(line, n);
+}
 
-    if (SENSOR_BRIDGE_JETSON_UART_NUM == UART_NUM_0) {
-        /* Share the console stream — Jetson-side parser keys on "TEMP:". */
-        fwrite(line, 1, n, stdout);
-        fflush(stdout);
-    } else {
-        uart_write_bytes(SENSOR_BRIDGE_JETSON_UART_NUM, line, n);
-    }
+/**
+ * Demo-mode CSV log line. Written when the hull has no Jetson — then the
+ * "TEMP:..." line has no consumer and Jamie's CSV format is the useful
+ * output for capture via a serial-port logger.
+ *
+ * Format matches the header Jamie's MicroPython script writes
+ * (Sensor_DataLog.py): "timestamp,pH,TDS_ppm,temp_C". Prefixed with
+ * "SLOG," so a serial-capture tool can split swarm console noise from
+ * sensor rows with a single grep.
+ */
+static void send_csv_log(const sensor_bridge_snapshot_t *snap)
+{
+    /* TDS in ppm = salinity_ppt * 1000. The compute_salinity_ppt step
+     * divides by 1000 to convert ppm→ppt, so we recover the original
+     * by multiplying back. */
+    float tds_ppm = snap->salinity_ppt * 1000.0f;
+    char line[128];
+    int n = snprintf(line, sizeof(line),
+                     "SLOG,%lu,%.2f,%.1f,%.2f\n",
+                     (unsigned long)snap->last_update_ms,
+                     snap->ph,
+                     tds_ppm,
+                     snap->temperature_c);
+    if (n >= (int)sizeof(line)) n = sizeof(line) - 1;
+    emit_line(line, n);
 }
 
 // ============================================================================
@@ -505,7 +545,14 @@ static void sensor_bridge_task(void *arg)
     const TickType_t period = pdMS_TO_TICKS(SENSOR_BRIDGE_TASK_PERIOD_MS);
 
     while (s_state.running) {
-        /* Drain any pH bytes that arrived since last tick. */
+        /* Active poll: ask the EZO for a fresh reading at the start of
+         * each cycle (mirrors Jamie's Sensor_DataLog.py). The response
+         * arrives on UART RX a fraction of a second later and is
+         * consumed by drain_ph_uart() below. */
+        poll_ph_sensor();
+
+        /* Drain any pH bytes that arrived since last tick (including the
+         * response to this cycle's poll, if it landed quickly enough). */
         drain_ph_uart();
 
         /* Temperature (also feeds the salinity compensation). */
@@ -534,6 +581,13 @@ static void sensor_bridge_task(void *arg)
 
         s_state.snapshot.last_update_ms = (uint32_t)(esp_timer_get_time() / 1000);
         send_to_jetson(&s_state.snapshot);
+
+        /* On Jetson-less hulls (demo followers), also emit Jamie's CSV
+         * format so an external serial-capture tool can record the
+         * sensor stream the same way Sensor_DataLog.py would have. */
+        if (!node_config_has_jetson()) {
+            send_csv_log(&s_state.snapshot);
+        }
 
         ESP_LOGD(TAG, "TX  TEMP=%.2f  SAL=%.3f  PH=%.2f",
                  s_state.snapshot.temperature_c,

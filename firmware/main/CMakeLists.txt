@@ -13,6 +13,8 @@ idf_component_register(
         "avoidance.c"
         "sensor_bridge.c"
         "swarm_bridge.c"
+        "pixhawk_link.c"
+        "mav_min.c"
     INCLUDE_DIRS
         "."
 )

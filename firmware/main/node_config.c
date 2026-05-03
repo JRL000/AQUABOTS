@@ -19,6 +19,7 @@ static const char *TAG = "NODE_CONFIG";
 // NVS storage
 #define NVS_NAMESPACE "swarm_config"
 #define NVS_KEY_NODE_ID "node_id"
+#define NVS_KEY_HAS_JETSON "has_jetson"
 
 // Default node_id from menuconfig (fallback if not provisioned)
 #ifndef CONFIG_DEFAULT_NODE_ID
@@ -28,6 +29,7 @@ static const char *TAG = "NODE_CONFIG";
 // Internal state
 static uint16_t current_node_id = NODE_ID_INVALID;
 static bool provisioned = false;
+static bool has_jetson = true;          // production default
 
 // ============================================================================
 // NVS OPERATIONS
@@ -62,29 +64,59 @@ static esp_err_t save_node_id_to_nvs(uint16_t node_id)
 {
     nvs_handle_t nvs_handle;
     esp_err_t err;
-    
+
     err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error opening NVS: %s", esp_err_to_name(err));
         return err;
     }
-    
+
     err = nvs_set_u16(nvs_handle, NVS_KEY_NODE_ID, node_id);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Error writing node_id to NVS: %s", esp_err_to_name(err));
         nvs_close(nvs_handle);
         return err;
     }
-    
+
     err = nvs_commit(nvs_handle);
     nvs_close(nvs_handle);
-    
+
     if (err == ESP_OK) {
         ESP_LOGI(TAG, "Saved node_id=%u to NVS", node_id);
     } else {
         ESP_LOGE(TAG, "Error committing to NVS: %s", esp_err_to_name(err));
     }
-    
+
+    return err;
+}
+
+static esp_err_t load_has_jetson_from_nvs(bool *out)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &nvs_handle);
+    if (err != ESP_OK) return err;
+
+    uint8_t v = 1;
+    err = nvs_get_u8(nvs_handle, NVS_KEY_HAS_JETSON, &v);
+    nvs_close(nvs_handle);
+    if (err == ESP_OK) {
+        *out = (v != 0);
+    }
+    return err;
+}
+
+static esp_err_t save_has_jetson_to_nvs(bool v)
+{
+    nvs_handle_t nvs_handle;
+    esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &nvs_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening NVS: %s", esp_err_to_name(err));
+        return err;
+    }
+    err = nvs_set_u8(nvs_handle, NVS_KEY_HAS_JETSON, v ? 1 : 0);
+    if (err == ESP_OK) err = nvs_commit(nvs_handle);
+    nvs_close(nvs_handle);
+    if (err == ESP_OK) ESP_LOGI(TAG, "Saved has_jetson=%d to NVS", v ? 1 : 0);
     return err;
 }
 
@@ -140,7 +172,7 @@ static int cmd_get_node_id(int argc, char **argv)
 static int cmd_show_info(int argc, char **argv)
 {
     printf("\n=== Node Information ===\n");
-    
+
     uint16_t node_id = node_config_get_node_id();
     printf("Node ID: ");
     if (node_id == NODE_ID_INVALID) {
@@ -148,15 +180,42 @@ static int cmd_show_info(int argc, char **argv)
     } else {
         printf("%u\n", node_id);
     }
-    
+
     uint8_t mac[6];
     node_config_get_mac(mac);
     printf("MAC Address: %02x:%02x:%02x:%02x:%02x:%02x\n",
            mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    
+
     printf("Provisioned: %s\n", node_config_is_provisioned() ? "YES" : "NO");
+    printf("Has Jetson : %s%s\n",
+           has_jetson ? "YES" : "no",
+           has_jetson ? " (production / leader hull)"
+                      : " (demo follower; pixhawk_link active)");
     printf("\n");
-    
+
+    return 0;
+}
+
+static int cmd_set_jetson(int argc, char **argv)
+{
+    if (argc != 2) {
+        printf("Usage: set_jetson <0|1>\n");
+        printf("  1 = this hull has a Jetson driving the Pixhawk (production)\n");
+        printf("  0 = demo follower hull; ESP32 talks to Pixhawk via pixhawk_link\n");
+        return 1;
+    }
+    int v = atoi(argv[1]);
+    if (v != 0 && v != 1) {
+        printf("Error: argument must be 0 or 1\n");
+        return 1;
+    }
+    esp_err_t err = node_config_set_has_jetson(v != 0);
+    if (err == ESP_OK) {
+        printf("has_jetson set to %d. Restart to apply.\n", v);
+    } else {
+        printf("Error: %s\n", esp_err_to_name(err));
+        return 1;
+    }
     return 0;
 }
 
@@ -185,6 +244,14 @@ static void register_console_commands(void)
         .func = &cmd_show_info,
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&info_cmd));
+
+    const esp_console_cmd_t set_jetson_cmd = {
+        .command = "set_jetson",
+        .help = "Persist has_jetson flag (0=demo follower, 1=production)",
+        .hint = NULL,
+        .func = &cmd_set_jetson,
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&set_jetson_cmd));
 }
 
 // ============================================================================
@@ -194,11 +261,11 @@ static void register_console_commands(void)
 esp_err_t node_config_init(void)
 {
     ESP_LOGI(TAG, "Initializing node configuration...");
-    
+
     // Try to load from NVS first
     uint16_t stored_id;
     esp_err_t err = load_node_id_from_nvs(&stored_id);
-    
+
     if (err == ESP_OK && stored_id >= NODE_ID_MIN && stored_id <= NODE_ID_MAX) {
         // Valid node_id found in NVS
         current_node_id = stored_id;
@@ -208,14 +275,20 @@ esp_err_t node_config_init(void)
         // Use default from menuconfig
         current_node_id = CONFIG_DEFAULT_NODE_ID;
         provisioned = (current_node_id != NODE_ID_INVALID);
-        
+
         if (provisioned) {
             ESP_LOGW(TAG, "Using default node_id=%u from menuconfig", current_node_id);
         } else {
             ESP_LOGW(TAG, "Node NOT provisioned. Use serial command 'set_node_id <id>' to provision.");
         }
     }
-    
+
+    bool stored_jetson = true;
+    if (load_has_jetson_from_nvs(&stored_jetson) == ESP_OK) {
+        has_jetson = stored_jetson;
+    }
+    ESP_LOGI(TAG, "Has Jetson : %s", has_jetson ? "YES (production/leader)" : "no (demo follower)");
+
     return ESP_OK;
 }
 
@@ -250,6 +323,20 @@ bool node_config_is_provisioned(void)
 void node_config_get_mac(uint8_t *mac)
 {
     esp_wifi_get_mac(WIFI_IF_STA, mac);
+}
+
+bool node_config_has_jetson(void)
+{
+    return has_jetson;
+}
+
+esp_err_t node_config_set_has_jetson(bool v)
+{
+    esp_err_t err = save_has_jetson_to_nvs(v);
+    if (err == ESP_OK) {
+        has_jetson = v;
+    }
+    return err;
 }
 
 void node_config_start_console(void)
