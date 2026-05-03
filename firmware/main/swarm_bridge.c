@@ -10,6 +10,7 @@
 #include "swarm_transport.h"
 #include "sensor_bridge.h"
 #include "leader_election.h"
+#include "membership.h"
 #include "node_config.h"
 #include "formation.h"
 #include "command_engine.h"
