@@ -1,4 +1,5 @@
-- [Session log — 2026-05-03 camera dead-end + follower drone firmware](session-logs/2026-05-03.md) — READ FIRST: camera CAM1 confirmed hardware failure after 80+ reseat attempts; pivoted and shipped pixhawk_link follower module + sensor logging integration. All on `main`, all pushed.
+- [LAPTOP NEXT STEPS — flash 3 boards (1 main + 2 followers)](NEXT_STEPS.md) — DO THIS NEXT on the laptop. ESP-IDF terminal (not VS Code). Per-board provisioning, COM-port discovery, follower wiring + verification recipe.
+- [Session log — 2026-05-03 camera dead-end + follower drone firmware](session-logs/2026-05-03.md) — what got built today; full narrative.
 - [pixhawk_link follower drone module (2026-05-03)](memory/project_pixhawk_link_2026-05-03.md) — new ESP-IDF module driving the Pixhawk over MAVLink for demo follower hulls; one binary on every node, NVS flag picks the role.
 - [Session log — 2026-04-23 Jetson deploy + branch merge](session-logs/04-23-2026.md) — earlier session: shipped 04-18 GUI to Jetson, added admin-pw + cleanup units, collapsed 3 branches to `main`, pinned swarm feature on new branch.
 - [PINNED: swarm formation + detach/rejoin feature](memory/project_swarm_formation_feature.md) — design-only task waiting on user; work continues on branch `swarm-formation`.
