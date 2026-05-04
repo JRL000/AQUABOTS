@@ -1,4 +1,6 @@
-- [Session log — 2026-04-23 Jetson deploy + branch merge](session-logs/04-23-2026.md) — READ FIRST: shipped 04-18 GUI to Jetson, added admin-pw + cleanup units, collapsed 3 branches to `main`, pinned swarm feature on new branch.
+- [Session log — 2026-05-03 camera dead-end + follower drone firmware](session-logs/2026-05-03.md) — READ FIRST: camera CAM1 confirmed hardware failure after 80+ reseat attempts; pivoted and shipped pixhawk_link follower module + sensor logging integration. All on `main`, all pushed.
+- [pixhawk_link follower drone module (2026-05-03)](memory/project_pixhawk_link_2026-05-03.md) — new ESP-IDF module driving the Pixhawk over MAVLink for demo follower hulls; one binary on every node, NVS flag picks the role.
+- [Session log — 2026-04-23 Jetson deploy + branch merge](session-logs/04-23-2026.md) — earlier session: shipped 04-18 GUI to Jetson, added admin-pw + cleanup units, collapsed 3 branches to `main`, pinned swarm feature on new branch.
 - [PINNED: swarm formation + detach/rejoin feature](memory/project_swarm_formation_feature.md) — design-only task waiting on user; work continues on branch `swarm-formation`.
 - [User is sole developer](memory/user_sole_developer.md) — John is the only one pushing; no cross-team coordination needed for merges/pushes.
 - [AquaBot admin password storage](memory/reference_admin_password.md) — GUI admin pw lives in `~/.config/aquabot.env` on the Jetson (not in git), loaded via EnvironmentFile.
