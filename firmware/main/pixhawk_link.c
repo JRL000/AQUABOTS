@@ -18,6 +18,7 @@
 #include "driver/gpio.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/semphr.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -75,6 +76,12 @@ static bool s_initialised = false;
 static bool s_running = false;
 static mav_min_parser_t s_parser;
 
+/* Serialises uart_write_bytes() across the TX task and any external
+ * callers (e.g., pixhawk_link_emergency_stop from the radio recv
+ * chain). uart_write_bytes is not internally thread-safe per IDF docs;
+ * concurrent calls would interleave bytes mid-MAVLink-frame. */
+static SemaphoreHandle_t s_tx_mutex = NULL;
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -98,7 +105,9 @@ static uint8_t next_seq(void)
 
 static void uart_send(const uint8_t *buf, size_t len)
 {
+    if (s_tx_mutex) xSemaphoreTake(s_tx_mutex, portMAX_DELAY);
     uart_write_bytes(PIXHAWK_LINK_UART_NUM, (const char *)buf, len);
+    if (s_tx_mutex) xSemaphoreGive(s_tx_mutex);
 }
 
 static double recover_heading_deg(int16_t raw)
@@ -343,6 +352,14 @@ esp_err_t pixhawk_link_init(void)
     memset((void *)&s, 0, sizeof(s));
     mav_min_parser_reset(&s_parser);
 
+    if (!s_tx_mutex) {
+        s_tx_mutex = xSemaphoreCreateMutex();
+        if (!s_tx_mutex) {
+            ESP_LOGE(TAG, "failed to create tx mutex");
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     uart_config_t cfg = {
         .baud_rate  = PIXHAWK_LINK_UART_BAUD,
         .data_bits  = UART_DATA_8_BITS,
@@ -494,11 +511,18 @@ static int cmd_px_stop(int argc, char **argv)
 
 void pixhawk_link_register_commands(void)
 {
-    const esp_console_cmd_t cmds[] = {
-        { "px_status", "Show Pixhawk link status",      NULL, &cmd_px_status },
-        { "px_stop",   "Force Pixhawk HOLD and disarm", NULL, &cmd_px_stop   },
+    const esp_console_cmd_t status_cmd = {
+        .command = "px_status",
+        .help    = "Show Pixhawk link status",
+        .hint    = NULL,
+        .func    = &cmd_px_status,
     };
-    for (size_t i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
-        esp_console_cmd_register(&cmds[i]);
-    }
+    const esp_console_cmd_t stop_cmd = {
+        .command = "px_stop",
+        .help    = "Force Pixhawk HOLD and disarm",
+        .hint    = NULL,
+        .func    = &cmd_px_stop,
+    };
+    esp_console_cmd_register(&status_cmd);
+    esp_console_cmd_register(&stop_cmd);
 }
