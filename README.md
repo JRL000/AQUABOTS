@@ -176,3 +176,15 @@ For manual debug runs, stop the corresponding systemd unit first so it
 doesn't fight over ports / serial devices. See `jetson/README.md` for the
 full architecture.
 
+
+## Authorship
+
+All software in this repository was written by John Lopez (JRL0101), unless noted below. That includes:
+
+- **Jetson ground station**: `jetson/app.py`, the web GUI, mission authoring (fences, survey generator, templates), safety/E-Stop/admin flow, MAVLink/mavproxy integration, WebRTC video, systemd services, and deployment scripts
+- **ESP32 firmware**: swarm membership, leader election, formation control, `sensor_bridge`, and `pixhawk_link`
+- **Hardware documentation**: power system, wiring guide, and EMI install procedure
+
+**Prior team work this builds on:**
+- Sensor calibration and salinity math in `firmware/main/sensor_bridge.c` are ported from Jamie Ledbetter's Arduino/MicroPython sensor prototype (`Jamie/`, `Sensor_DataLog.py`).
+- The Jetson GUI began as a modification of Mayra's original GUI/Starlink code (see `jetson/CHANGES_FOR_MAYRA.md`).
