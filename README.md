@@ -26,10 +26,7 @@ AQUABOTS/
 │   ├── systemd/            User unit files for all four services
 │   ├── templates/, static/ Operator dashboard (Flask + Leaflet)
 │   └── README.md           Setup and architecture docs
-├── docs/                   Power system changelog, Pixhawk ESC wiring, misc
-├── Claude/
-│   ├── project-docs/       Project-level specs (power system, wiring guide, summaries, handoff)
-│   └── session-logs/       Dated work logs
+├── docs/                   Project specs: power system, wiring guide, EMI procedure, summaries, review decks
 ├── reference/              Previous team's CAD files and reference code
 └── README.md               This file
 ```
@@ -134,7 +131,7 @@ Followers = ESP-NOW only.
 - **EMI filtering** designed (Rev ISR-4b + FAR-1 updates), all parts on hand, pending install.
 
 Full power system spec: `docs/AQUABOTS_POWER_SYSTEM_CHANGELOG.md` (Rev FAR-1)
-Wiring guide: `Claude/project-docs/AQUABOTS_WIRING_GUIDE.md` (Rev WG-3)
+Wiring guide: `docs/AQUABOTS_WIRING_GUIDE.md` (Rev WG-3)
 
 ---
 

@@ -2,7 +2,7 @@
 # AQUABOTS — root .gitignore
 # -----------------------------------------------------------------------
 
-# Claude Code local settings
+# Local tool settings
 .claude/
 
 # Windows system files
@@ -57,8 +57,6 @@ compile_commands.json
 *.suo
 *.user
 
-# Claude Code context
-# Claude/ is tracked so memory + session notes sync across PCs via git.
 CLAUDE.md
 
 # Stale build directories
