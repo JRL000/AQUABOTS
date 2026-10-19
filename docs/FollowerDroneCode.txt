@@ -1,0 +1,216 @@
+// ============================================================
+//  Baby Drone ESP32 Firmware
+//  - Receives SwarmCommand packets from main ESP32 via ESP-NOW
+//  - Forwards position targets to baby Pixhawk via MAVLink
+//  - ArduPilot Rover: GUIDED mode = 15
+// ============================================================
+
+#include <esp_now.h>
+#include <WiFi.h>
+#include <MAVLink.h>   // MAVLink c_library_v2
+
+// ── Config — change this one line per drone ─────────────────
+#define DRONE_ID        2       // Numbers taken: 1, 
+// ────────────────────────────────────────────────────────────
+
+#define MAV_SYS_ID      (DRONE_ID + 1)  // Pixhawk SYSID: baby #1 → 2, #2 → 3
+#define PIXHAWK_RX_PIN  16      // ESP32 GPIO16 (RX2) ← Pixhawk TELEM1 TX
+#define PIXHAWK_TX_PIN  17      // ESP32 GPIO17 (TX2) → Pixhawk TELEM1 RX
+#define PIXHAWK_BAUD    57600
+
+// ── Shared packet structure ─────────────────────────────────
+// Must be identical on the main ESP32 side
+typedef struct SwarmCommand {
+  uint8_t  drone_id;    // 0 = broadcast to all, 1..n = specific drone
+  float    target_lat;  // Absolute latitude  (already computed by Jetson)
+  float    target_lon;  // Absolute longitude (already computed by Jetson)
+  float    target_alt;  // Altitude — set to 0, ignored by Rover
+} SwarmCommand;
+
+// ── State ───────────────────────────────────────────────────
+HardwareSerial pixhawk(2);      // UART2 → Pixhawk TELEM1
+
+volatile bool newCommand = false;
+SwarmCommand  latestCmd;
+
+bool isArmed  = false;
+bool isGuided = false;
+
+uint32_t lastHeartbeatSent = 0;
+
+
+// ════════════════════════════════════════════════════════════
+//  ESP-NOW callback — fires when main ESP32 sends a packet
+// ════════════════════════════════════════════════════════════
+void onDataReceived(const esp_now_recv_info *info, const uint8_t *data, int len) {
+  if (len != sizeof(SwarmCommand)) return;
+
+  SwarmCommand cmd;
+  memcpy(&cmd, data, sizeof(cmd));
+
+  if (cmd.drone_id == 0 || cmd.drone_id == DRONE_ID) {
+    memcpy(&latestCmd, &cmd, sizeof(cmd));
+    newCommand = true;
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  MAVLink helpers — outgoing to Pixhawk
+// ════════════════════════════════════════════════════════════
+
+// Send GCS heartbeat so Pixhawk knows someone is connected
+void sendHeartbeat() {
+  mavlink_message_t msg;
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  mavlink_msg_heartbeat_pack(
+    255, 190, &msg,
+    MAV_TYPE_GCS,
+    MAV_AUTOPILOT_INVALID,
+    MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+    0,
+    MAV_STATE_ACTIVE);
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+  pixhawk.write(buf, len);
+}
+
+// Switch Pixhawk to GUIDED mode (mode 15 in ArduPilot Rover)
+void sendGuidedMode() {
+  mavlink_message_t msg;
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  mavlink_msg_set_mode_pack(
+    255, 190, &msg,
+    MAV_SYS_ID,
+    MAV_MODE_FLAG_CUSTOM_MODE_ENABLED,
+    15);                                // 15 = GUIDED in ArduPilot Rover
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+  pixhawk.write(buf, len);
+}
+
+// Arm the Pixhawk
+void sendArmCommand(bool arm) {
+  mavlink_message_t msg;
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  mavlink_msg_command_long_pack(
+    255, 190, &msg,
+    MAV_SYS_ID, 1,
+    MAV_CMD_COMPONENT_ARM_DISARM,
+    0,
+    arm ? 1.0f : 0.0f,
+    0, 0, 0, 0, 0, 0);
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+  pixhawk.write(buf, len);
+}
+
+// Send a lat/lon position target to the Pixhawk
+// Rover ignores altitude — we pass 0
+void sendPositionTarget(float lat, float lon) {
+  mavlink_message_t msg;
+  uint8_t buf[MAVLINK_MAX_PACKET_LEN];
+  uint16_t type_mask = 0b110111111000;  // position only, ignore vel/accel/yaw
+  mavlink_msg_set_position_target_global_int_pack(
+    255, 190, &msg,
+    millis(),
+    MAV_SYS_ID, 1,
+    MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+    type_mask,
+    (int32_t)(lat * 1e7),
+    (int32_t)(lon * 1e7),
+    0,                                  // alt — ignored by Rover
+    0, 0, 0,
+    0, 0, 0,
+    0, 0);
+  uint16_t len = mavlink_msg_to_send_buffer(buf, &msg);
+  pixhawk.write(buf, len);
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  MAVLink reader — parse incoming data from Pixhawk
+//  Tracks arm state and current flight mode
+// ════════════════════════════════════════════════════════════
+void readPixhawk() {
+  mavlink_message_t msg;
+  mavlink_status_t  status;
+  while (pixhawk.available()) {
+    uint8_t c = pixhawk.read();
+    if (mavlink_parse_char(MAVLINK_COMM_0, c, &msg, &status)) {
+      if (msg.msgid == MAVLINK_MSG_ID_HEARTBEAT) {
+        mavlink_heartbeat_t hb;
+        mavlink_msg_heartbeat_decode(&msg, &hb);
+        isArmed  = (hb.base_mode & MAV_MODE_FLAG_SAFETY_ARMED);
+        isGuided = (hb.custom_mode == 15);
+      }
+    }
+  }
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  Setup
+// ════════════════════════════════════════════════════════════
+void setup() {
+  Serial.begin(115200);
+
+  // Start UART to Pixhawk
+  pixhawk.begin(PIXHAWK_BAUD, SERIAL_8N1, PIXHAWK_RX_PIN, PIXHAWK_TX_PIN);
+
+  // WiFi station mode required for ESP-NOW
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+
+  // Init ESP-NOW
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("ERROR: ESP-NOW init failed. Halting.");
+    while (true) delay(1000);
+  }
+  esp_now_register_recv_cb(onDataReceived);
+
+  Serial.println("=============================");
+  Serial.printf(" Baby drone #%d ready\n", DRONE_ID);
+  Serial.printf(" MAC: %s\n", WiFi.macAddress().c_str());
+  Serial.printf(" Pixhawk SYSID: %d\n", MAV_SYS_ID);
+  Serial.println("=============================");
+  Serial.println("Waiting for swarm commands...");
+}
+
+
+// ════════════════════════════════════════════════════════════
+//  Main loop
+// ════════════════════════════════════════════════════════════
+void loop() {
+  uint32_t now = millis();
+
+  // 1. Always read from Pixhawk to track arm/mode state
+  readPixhawk();
+
+  // 2. Send heartbeat every 1 second
+  if (now - lastHeartbeatSent >= 1000) {
+    sendHeartbeat();
+    lastHeartbeatSent = now;
+  }
+
+  // 3. Process new swarm command
+  if (newCommand) {
+    newCommand = false;
+
+    // Switch to GUIDED if not already
+    if (!isGuided) {
+      Serial.println("Switching to GUIDED mode...");
+      sendGuidedMode();
+      delay(300);
+    }
+
+    // Arm if not already armed
+    if (!isArmed) {
+      Serial.println("Arming...");
+      sendArmCommand(true);
+      delay(500);
+    }
+
+    // Send the position target
+    sendPositionTarget(latestCmd.target_lat, latestCmd.target_lon);
+    Serial.printf("Target: %.7f, %.7f\n",
+                  latestCmd.target_lat, latestCmd.target_lon);
+  }
+}
