@@ -159,8 +159,4 @@ Exit monitor with `Ctrl+]`.
 
 ## Background reading (optional)
 
-- `Claude/session-logs/2026-05-03.md` — full narrative of what was built
-  and why.
-- `Claude/memory/project_pixhawk_link_2026-05-03.md` — concise reference
-  for the new firmware module.
 - `firmware/main/pixhawk_link.h` — module API and pin map.
